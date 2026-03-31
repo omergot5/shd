@@ -239,19 +239,31 @@ function AuthPage({ accounts, guards, onLogin, onRegister, onGuardJoin }) {
   };
 
   // --- Supervisor login ---
-  const handleSupLogin = () => {
-    const acc = accounts.find(a => a.email.toLowerCase() === email.trim().toLowerCase() && a.password === password);
+  const handleSupLogin = async () => {
+    // 1. Local check
+    let acc = accounts.find(a => a.email.toLowerCase() === email.trim().toLowerCase() && a.password === password);
+    
+    // 2. Cloud check if local fails (for new devices)
+    if (!acc) {
+      try {
+        const { data: dbProfiles } = await supabase.from('profiles')
+          .select('*').eq('role', 'supervisor').ilike('id', email.split('@')[0]); // simplified mapping
+        // For now, let's just use email check if we had auth, but since we use mock:
+        // We'll rely on local + Sync button for now, or fetch all sups on mount.
+      } catch (e) { console.error(e); }
+    }
+
     if (!acc) { setError("אימייל או סיסמה שגויים"); return; }
     onLogin({ ...acc });
   };
 
   // --- Guard join ---
-  const handleGuardJoin = () => {
+  const handleGuardJoin = async () => {
     if (!teamCode.trim()) { setError("יש להזין קוד צוות"); return; }
     if (!guardName.trim()) { setError("יש להזין שם"); return; }
     const acc = accounts.find(a => a.teamCode === teamCode.trim().toUpperCase());
     if (!acc) { setError("קוד צוות לא קיים — בדוק עם האחמ\"ש שלך"); return; }
-    onGuardJoin(teamCode.trim().toUpperCase(), guardName.trim());
+    await onGuardJoin(teamCode.trim().toUpperCase(), guardName.trim());
   };
 
   // --- Supervisor register ---
@@ -423,6 +435,7 @@ function SupervisorApp({ user, guards, shifts, availability, swapRequests, tasks
     setGuards, setShifts, setAvailability, setSwapRequests, setTasks, onLogout }) {
   const [view, setView] = useState("dashboard");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // Compute 7-day week (Sun–Sat) based on offset
   const weekDates = useMemo(() => {
@@ -1943,17 +1956,31 @@ export default function App() {
   }, [weekOffset]);
 
   // Supervisor registers → new account created
-  const handleRegister = (newAcc) => {
+  const handleRegister = async (newAcc) => {
     setAccounts(p => [...p, newAcc]);
+    try {
+      await supabase.from('profiles').upsert({
+        id: newAcc.id,
+        full_name: newAcc.name,
+        role: 'supervisor',
+        team_code: newAcc.teamCode
+      });
+    } catch (e) { console.error("Cloud Reg Error:", e); }
   };
 
   // Guard joins with team code + name
-  const handleGuardJoin = (teamCode, name) => {
+  const handleGuardJoin = async (teamCode, name) => {
     // Find or create guard profile
     let guard = guards.find(g => g.teamCode === teamCode && g.name.toLowerCase() === name.toLowerCase());
     if (!guard) {
-      guard = { id: `g${Date.now()}`, name, phone: "—", teamCode };
+      const newId = `g${Date.now()}`;
+      guard = { id: newId, name, phone: "—", teamCode };
       setGuards(p => [...p, guard]);
+      try {
+        await supabase.from('profiles').insert({
+          id: newId, full_name: name, role: 'guard', team_code: teamCode
+        });
+      } catch (e) { console.error("Cloud Join Error:", e); }
     }
     setUser({ ...guard, type: "guard" });
   };
