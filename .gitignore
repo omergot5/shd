@@ -1,1 +1,14 @@
 node_modules
+dist
+.env
+.env.*
+!.env.example
+
+# local tooling
+.claude/
+.agents/
+skills-lock.json
+
+# superseded by src/ — the whole app now lives under src/
+/GuardianShifts.jsx
+/supabase.js
