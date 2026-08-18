@@ -88,7 +88,7 @@ export async function getSession() {
   return data?.session || null;
 }
 
-/** Resolve the signed-in user to a Guardian Shifts profile, if they have one. */
+/** Resolve the signed-in user to a Smart Shift Management profile, if they have one. */
 export async function getMyProfile() {
   const session = await getSession();
   if (!session) return null;

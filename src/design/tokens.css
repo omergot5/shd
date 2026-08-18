@@ -1,0 +1,145 @@
+/* ============================================================
+ * Design tokens — "Vault": deep navy glass, emerald accents.
+ *
+ * Every colour in the app resolves through one of these variables.
+ * Components never name a colour ("blue-600"), they name a role
+ * ("brand"), which is what makes the light/dark swap a 30-line file
+ * instead of a find-and-replace across 3,000 lines of JSX.
+ *
+ * Solid colours are stored as space-separated RGB channels so Tailwind's
+ * `rgb(var(--x) / <alpha-value>)` syntax works and `bg-brand/20` still
+ * does what you'd expect. Glass surfaces are stored as finished rgba()
+ * because their alpha *is* the design — it must not be overridden.
+ * ============================================================ */
+
+:root {
+  /* -- surfaces ------------------------------------------------ */
+  --bg: 11 18 32; /* #0B1220 — vault navy */
+  --bg-deep: 6 11 22; /* behind the glow layer */
+
+  /* Glass needs something to refract. These two radial glows sit
+   * behind every panel; without them frosted glass reads as flat grey. */
+  --glow-brand: rgba(59, 130, 246, 0.16);
+  --glow-accent: rgba(16, 185, 129, 0.1);
+
+  --surface: rgba(255, 255, 255, 0.045);
+  --surface-hover: rgba(255, 255, 255, 0.075);
+  --surface-raised: rgba(19, 28, 45, 0.82); /* modals, sidebar — needs opacity to stay legible */
+  --surface-sunken: rgba(0, 0, 0, 0.22);
+
+  --hairline: rgba(255, 255, 255, 0.09);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+
+  /* -- text ---------------------------------------------------- */
+  --text: 241 245 249; /* #F1F5F9 — 16.6:1 on --bg */
+  --text-muted: 148 163 184; /* #94A3B8 —  7.0:1 on --bg */
+  --text-faint: 124 138 163; /* #7C8AA3 —  5.3:1 */
+
+  /* -- brand --------------------------------------------------- */
+  --brand: 59 130 246; /* #3B82F6 — 4.9:1 on --bg */
+  --brand-strong: 96 165 250;
+  --on-brand: 255 255 255;
+
+  --accent: 16 185 129; /* #10B981 — 7.4:1 on --bg */
+  --accent-strong: 52 211 153;
+  --on-accent: 4 20 15;
+
+  /* -- status -------------------------------------------------- */
+  --warn: 245 158 11;
+  --danger: 244 63 94;
+  --info: 56 189 248;
+
+  /* -- shape & depth ------------------------------------------- */
+  --blur: 16px;
+  --blur-strong: 26px;
+  --ring: 59 130 246;
+
+  /* The inset top highlight is what sells "pane of glass" rather than
+   * "translucent div" — it fakes a light source above the surface. */
+  --shadow-glass: 0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+    0 8px 24px -12px rgba(0, 0, 0, 0.55);
+  --shadow-raised: 0 1px 0 0 rgba(255, 255, 255, 0.07) inset,
+    0 24px 60px -20px rgba(0, 0, 0, 0.75);
+
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------ *
+ * Light theme.
+ *
+ * Glass over a light ground is a different physical model: the panel
+ * is now *brighter* than what's behind it, so the alpha goes up, the
+ * highlight moves from white to shadow, and the brand colours darken
+ * to hold 4.5:1 against near-white.
+ * ------------------------------------------------------------ */
+:root[data-theme="light"] {
+  --bg: 238 242 247; /* #EEF2F7 */
+  --bg-deep: 226 232 240;
+
+  --glow-brand: rgba(59, 130, 246, 0.18);
+  --glow-accent: rgba(16, 185, 129, 0.14);
+
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-hover: rgba(255, 255, 255, 0.92);
+  --surface-raised: rgba(255, 255, 255, 0.96);
+  --surface-sunken: rgba(15, 23, 42, 0.04);
+
+  --hairline: rgba(15, 23, 42, 0.09);
+  --hairline-strong: rgba(15, 23, 42, 0.16);
+
+  --text: 15 23 42; /* #0F172A — 15.9:1 on --bg */
+  --text-muted: 71 85 105; /* #475569 —  6.8:1 */
+  --text-faint: 92 105 126; /* #5C697E —  4.9:1 */
+
+  --brand: 37 99 235; /* #2563EB — 5.2:1 on white */
+  --brand-strong: 29 78 216;
+  --on-brand: 255 255 255;
+
+  --accent: 4 120 87; /* #047857 — 5.6:1 on white (emerald-600 is only 3.4) */
+  --accent-strong: 6 95 70;
+  --on-accent: 255 255 255;
+
+  --warn: 161 74 8; /* 5.4:1 */
+  --danger: 190 24 93; /* 5.3:1 */
+  --info: 3 105 161; /* 5.3:1 */
+
+  --shadow-glass: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+    0 8px 24px -14px rgba(15, 23, 42, 0.28);
+  --shadow-raised: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+    0 24px 60px -22px rgba(15, 23, 42, 0.35);
+
+  color-scheme: light;
+}
+
+/* Someone who has never touched the toggle gets their OS preference.
+ * Once they choose, `data-theme` is stamped on <html> and wins over this. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: 238 242 247;
+    --bg-deep: 226 232 240;
+    --glow-brand: rgba(59, 130, 246, 0.18);
+    --glow-accent: rgba(16, 185, 129, 0.14);
+    --surface: rgba(255, 255, 255, 0.72);
+    --surface-hover: rgba(255, 255, 255, 0.92);
+    --surface-raised: rgba(255, 255, 255, 0.96);
+    --surface-sunken: rgba(15, 23, 42, 0.04);
+    --hairline: rgba(15, 23, 42, 0.09);
+    --hairline-strong: rgba(15, 23, 42, 0.16);
+    --text: 15 23 42;
+    --text-muted: 71 85 105;
+    --text-faint: 92 105 126;
+    --brand: 37 99 235;
+    --brand-strong: 29 78 216;
+    --accent: 4 120 87;
+    --accent-strong: 6 95 70;
+    --on-accent: 255 255 255;
+    --warn: 161 74 8;
+    --danger: 190 24 93;
+    --info: 3 105 161;
+    --shadow-glass: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+      0 8px 24px -14px rgba(15, 23, 42, 0.28);
+    --shadow-raised: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+      0 24px 60px -22px rgba(15, 23, 42, 0.35);
+    color-scheme: light;
+  }
+}

@@ -1,5 +1,5 @@
 // ============================================================
-// Guardian Shifts — smart assignment engine
+// Smart Shift Management — smart assignment engine
 //
 // A deterministic constraint solver. Same inputs always produce the same
 // schedule, and every decision it makes carries a human-readable reason,
@@ -54,10 +54,18 @@ const availComment = (availability, guardId, shiftId) => {
   return typeof raw === "object" ? raw?.comment || "" : "";
 };
 
+/** For quantities that are genuinely fractional: hours, per-guard averages. */
 const round = (n, digits = 1) => {
   const f = 10 ** digits;
   return Math.round(n * f) / f;
 };
+
+/**
+ * For score contributions. These are shown side by side in the "why?" panel,
+ * so a `+8.8` sitting next to a `+40` reads like a bug even when the maths is
+ * right — points are whole numbers everywhere they surface.
+ */
+const points = (n) => Math.round(n);
 
 /** Stable deterministic ordering fallback so runs are reproducible. */
 const tieBreak = (a, b) => String(a.guardId).localeCompare(String(b.guardId));
@@ -203,7 +211,7 @@ function scoreCandidate({ guard, shift, load, availability, rules, stats, check 
   // 2. Fairness — the further below the team average, the stronger the pull.
   const target = Math.max(stats.targetPerGuard, 0.001);
   const fairness = Math.max(0, Math.min(1, 1 - load.count / target));
-  const fairnessPts = round(35 * fairness);
+  const fairnessPts = points(35 * fairness);
   score += fairnessPts;
   parts.push({
     label:
@@ -219,7 +227,7 @@ function scoreCandidate({ guard, shift, load, availability, rules, stats, check 
   if (shift.type === "night") {
     const nightTarget = Math.max(stats.nightTargetPerGuard, 0.001);
     const nightFair = Math.max(0, Math.min(1, 1 - load.nights / nightTarget));
-    const nightPts = round(22 * nightFair);
+    const nightPts = points(22 * nightFair);
     score += nightPts;
     parts.push({
       label:
@@ -233,7 +241,7 @@ function scoreCandidate({ guard, shift, load, availability, rules, stats, check 
 
   // 4. Rest comfort — more recovery time is better, capped at 24h.
   if (Number.isFinite(check.gap)) {
-    const restPts = round(10 * Math.min(check.gap, 24) / 24);
+    const restPts = points((10 * Math.min(check.gap, 24)) / 24);
     score += restPts;
     parts.push({ label: `${round(check.gap)} שעות מנוחה מהמשמרת הקודמת`, points: restPts, kind: "rest" });
   } else {
@@ -257,7 +265,7 @@ function scoreCandidate({ guard, shift, load, availability, rules, stats, check 
   // Expressed as "how good a match is this, out of 100" — a raw point total
   // means nothing to a supervisor looking at the screen.
   const normalised = Math.max(0, Math.min(100, Math.round((score / maxScoreFor(shift)) * 100)));
-  return { score: normalised, raw: round(score), parts };
+  return { score: normalised, raw: points(score), parts };
 }
 
 // ---------- main entry point ----------

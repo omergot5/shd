@@ -1,35 +1,104 @@
+@import "./design/tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  /* Set on html, not body: Tailwind's preflight also targets html, and
+   * relying on `theme('fontFamily.sans')` reaching it is fragile — being
+   * explicit here means the typeface can't silently fall back to the
+   * system stack (which renders Hebrew noticeably worse). */
+  html {
+    font-family: theme("fontFamily.sans");
+  }
+
+  body {
+    margin: 0;
+    font-family: inherit;
+    background-color: rgb(var(--bg-deep));
+    color: rgb(var(--text));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Stops iOS Safari zooming when a field is focused. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Numbers in a schedule must not jiggle as they update. */
+  th,
+  td,
+  time,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* One focus ring for the whole app. Never removed — only restyled,
+   * and only for pointer users who already have a hover affordance. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--ring));
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background: rgb(var(--brand) / 0.35);
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
+@layer components {
+  /* The ambient layer every glass panel refracts. Two soft radial glows
+   * over the base colour — cheap (no filter, no repaint) and it's what
+   * stops frosted panels reading as flat grey rectangles. */
+  .app-canvas {
+    position: relative;
+    isolation: isolate;
+    background-color: rgb(var(--bg));
+    background-image: radial-gradient(
+        58rem 40rem at 88% -8%,
+        var(--glow-brand),
+        transparent 62%
+      ),
+      radial-gradient(48rem 34rem at 6% 104%, var(--glow-accent), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  .glass {
+    background: var(--surface);
+    backdrop-filter: blur(var(--blur)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass-raised {
+    background: var(--surface-raised);
+    backdrop-filter: blur(var(--blur-strong)) saturate(150%);
+    -webkit-backdrop-filter: blur(var(--blur-strong)) saturate(150%);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-raised);
+  }
 }
 
-body {
-  margin: 0;
-  /* Segoe UI and Arimo carry Hebrew well on Windows/Android; -apple-system on iOS. */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Rubik", "Arimo", "Helvetica Neue",
-    Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background: #f6f7f9;
-  /* Stops iOS Safari from zooming when a field is focused. */
-  -webkit-text-size-adjust: 100%;
+@layer utilities {
+  /* Keeps the guard's bottom tab bar clear of the iPhone home indicator. */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0);
+  }
 }
 
-/* Keep the guard's bottom tab bar clear of the iPhone home indicator. */
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0);
-}
-
-/* Inputs below 16px trigger auto-zoom on iOS — bump them on small screens. */
+/* Inputs under 16px trigger auto-zoom on iOS — bump them on small screens. */
 @media (max-width: 640px) {
   input,
   select,
@@ -38,7 +107,7 @@ body {
   }
 }
 
-/* Tidier scrollbars on desktop; untouched on mobile. */
+/* Tidier scrollbars on desktop; untouched on touch devices. */
 @media (pointer: fine) {
   ::-webkit-scrollbar {
     width: 10px;
@@ -48,13 +117,13 @@ body {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #d4d7dd;
+    background: var(--hairline-strong);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #b9bec7;
+    background: rgb(var(--text-faint) / 0.6);
     background-clip: content-box;
   }
 }
@@ -64,6 +133,8 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

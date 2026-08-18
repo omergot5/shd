@@ -1,87 +1,109 @@
-import { useState } from "react";
-import { Btn, Field, Input, Alert, Spinner } from "./ui.jsx";
+import { useId, useState } from "react";
+import { Logo } from "./Logo.jsx";
+import { Icon } from "./icons.jsx";
+import ThemeToggle from "./ThemeToggle.jsx";
+import { Alert, Btn, Field, Input, Spinner } from "./ui.jsx";
 
 // ============================================================
 // Entry point. Three deliberately distinct doors:
-//   demo      — one click, nothing to fill in, fully seeded team
-//   supervisor— email + password, works from any device
-//   guard     — team code + name, no password to remember
+//   demo       — one click, nothing to fill in, fully seeded team
+//   supervisor — email + password, works from any device
+//   guard      — team code + name, no password to remember
+//
+// Each panel is a real <form>, so Enter submits, password managers fill,
+// and the browser's own validation is available — none of which you get
+// from a div with an onKeyDown listener.
 // ============================================================
 
-const Logo = () => (
-  <div className="text-center mb-8">
-    <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4 shadow-lg shadow-blue-900/40 text-3xl">
-      🛡️
-    </div>
-    <h1 className="text-3xl font-extrabold text-white tracking-tight">Guardian Shifts</h1>
-    <p className="text-blue-300/80 mt-1.5 text-sm">שיבוץ משמרות חכם לצוותי אבטחה</p>
-  </div>
-);
-
-const DoorCard = ({ icon, iconBg, title, body, onClick, accent = false, badge }) => (
+const DoorCard = ({ icon, tone, title, body, onClick, accent = false, badge, busy }) => (
   <button
     onClick={onClick}
-    className={`w-full text-right rounded-2xl p-4 transition-all group border ${
-      accent
-        ? "bg-blue-600 hover:bg-blue-500 border-blue-400/40 shadow-lg shadow-blue-900/30"
-        : "bg-white/[0.07] hover:bg-white/[0.14] border-white/15"
-    }`}
+    disabled={busy}
+    className={`w-full text-right rounded-2xl p-4 cursor-pointer group
+      transition-[background,border-color,transform,box-shadow] duration-200
+      active:scale-[0.99] disabled:opacity-60 disabled:cursor-wait
+      ${
+        accent
+          ? "bg-brand hover:bg-brand-strong border border-brand-strong/50 shadow-xl shadow-brand/25"
+          : "glass hover:bg-surface-hover hover:border-hairline-strong"
+      }`}
   >
     <div className="flex items-center gap-3.5">
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${iconBg}`}>
-        {icon}
+      <div
+        className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+          accent ? "bg-white/20 text-white" : tone
+        }`}
+      >
+        <Icon name={icon} size={21} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <h2 className="text-white font-bold text-[15px]">{title}</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className={`font-bold text-[15px] ${accent ? "text-white" : "text-content"}`}>
+            {title}
+          </h2>
           {badge && (
-            <span className="text-[10px] font-bold bg-white/20 text-white px-1.5 py-0.5 rounded">{badge}</span>
+            <span
+              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                accent ? "bg-white/25 text-white" : "bg-surface-sunken text-muted"
+              }`}
+            >
+              {badge}
+            </span>
           )}
         </div>
-        <p className={`text-xs mt-0.5 ${accent ? "text-blue-100" : "text-blue-300/80"}`}>{body}</p>
+        <p className={`text-xs mt-0.5 ${accent ? "text-white/80" : "text-muted"}`}>{body}</p>
       </div>
-      <span className="text-white/40 group-hover:text-white transition-colors text-lg">‹</span>
+      {/* RTL: "forward" points left. */}
+      <Icon
+        name="left"
+        size={18}
+        className={`transition-transform duration-200 group-hover:-translate-x-0.5 ${
+          accent ? "text-white/70" : "text-faint"
+        }`}
+      />
     </div>
   </button>
 );
 
-const Panel = ({ title, subtitle, onBack, children }) => (
-  <div className="bg-white/[0.07] backdrop-blur border border-white/15 rounded-2xl p-6">
-    <button onClick={onBack} className="text-blue-300 hover:text-white text-sm mb-4 flex items-center gap-1">
-      › חזרה
+const Panel = ({ title, subtitle, onBack, onSubmit, children }) => (
+  <form
+    onSubmit={(e) => {
+      e.preventDefault();
+      onSubmit();
+    }}
+    className="glass rounded-2xl p-6 animate-fade-up"
+  >
+    <button
+      type="button"
+      onClick={onBack}
+      className="text-muted hover:text-content text-sm mb-4 flex items-center gap-1 cursor-pointer transition-colors"
+    >
+      <Icon name="right" size={15} /> חזרה
     </button>
-    <h2 className="text-white font-bold text-xl">{title}</h2>
-    {subtitle && <p className="text-blue-300/80 text-xs mt-1 mb-5">{subtitle}</p>}
+    <h2 className="text-content font-bold text-xl">{title}</h2>
+    {subtitle && <p className="text-muted text-xs mt-1">{subtitle}</p>}
     <div className="mt-5 space-y-4">{children}</div>
-  </div>
-);
-
-const darkInput =
-  "w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/30 text-sm transition-shadow";
-
-const DarkField = ({ label, hint, children }) => (
-  <div>
-    <label className="block text-blue-200 text-sm mb-1.5 font-medium">{label}</label>
-    {children}
-    {hint && <p className="text-blue-400/60 text-xs mt-1.5">{hint}</p>}
-  </div>
+  </form>
 );
 
 export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, error, clearError }) {
   const [mode, setMode] = useState(null); // null | 'login' | 'register' | 'guard'
   const [local, setLocal] = useState("");
+  const id = useId();
 
   const [form, setForm] = useState({
     email: "", password: "", fullName: "", teamName: "", confirm: "", teamCode: "", guardName: "",
   });
-  const set = (k) => (e) => {
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const set = (key) => (e) => {
+    const value = key === "teamCode" ? e.target.value.toUpperCase() : e.target.value;
+    setForm((f) => ({ ...f, [key]: value }));
     setLocal("");
     clearError?.();
   };
 
-  const reset = () => {
-    setMode(null);
+  const go = (next) => () => {
+    setMode(next);
     setLocal("");
     clearError?.();
   };
@@ -94,11 +116,13 @@ export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, er
     if (form.password.length < 6) return setLocal("הסיסמה חייבת להיות באורך 6 תווים לפחות");
     if (form.password !== form.confirm) return setLocal("הסיסמאות לא תואמות");
     try {
-      // On success the parent swaps this screen for the app, which greets the
-      // new supervisor with their team code.
+      // On success the parent swaps this screen for the app, which greets
+      // the new supervisor with their team code.
       await onRegister({
-        email: form.email, password: form.password,
-        fullName: form.fullName, teamName: form.teamName,
+        email: form.email,
+        password: form.password,
+        fullName: form.fullName,
+        teamName: form.teamName,
       });
     } catch (e) {
       setLocal(
@@ -119,7 +143,7 @@ export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, er
   };
 
   const submitJoin = async () => {
-    if (form.teamCode.trim().length < 4) return setLocal("יש להזין קוד צוות בן 6 תווים");
+    if (form.teamCode.trim().length < 6) return setLocal("יש להזין קוד צוות בן 6 תווים");
     if (!form.guardName.trim()) return setLocal("יש להזין את שמך המלא");
     try {
       await onJoin({ teamCode: form.teamCode, fullName: form.guardName });
@@ -128,141 +152,199 @@ export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, er
     }
   };
 
-  const onEnter = (fn) => (e) => e.key === "Enter" && fn();
-
   return (
-    <div
-      className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4"
-      dir="rtl"
-    >
+    <div className="app-canvas min-h-screen flex flex-col items-center justify-center p-4" dir="rtl">
       <div className="w-full max-w-md">
-        <Logo />
+        <div className="flex justify-center mb-8 animate-fade-up">
+          <Logo size={64} stacked tagline="שיבוץ משמרות חכם לצוותי אבטחה" />
+        </div>
 
         {!mode ? (
-          /* ── door selection ── */
-          <div className="space-y-3">
+          <div className="space-y-3 animate-fade-up">
             <DoorCard
-              icon="🎬" iconBg="bg-white/20" accent badge="ללא הרשמה"
+              icon="play"
+              accent
+              badge="ללא הרשמה"
               title="הפעל הדגמה"
               body="צוות מלא עם נתונים אמיתיים — לראות את השיבוץ החכם עובד"
               onClick={onDemo}
+              busy={busy}
             />
 
             <div className="flex items-center gap-3 py-1">
-              <div className="flex-1 h-px bg-white/10" />
-              <span className="text-white/30 text-[11px]">או התחבר לצוות שלך</span>
-              <div className="flex-1 h-px bg-white/10" />
+              <div className="flex-1 h-px bg-hairline" />
+              <span className="text-faint text-[11px]">או התחבר לצוות שלך</span>
+              <div className="flex-1 h-px bg-hairline" />
             </div>
 
             <DoorCard
-              icon="👔" iconBg="bg-amber-500"
+              icon="briefcase"
+              tone="bg-warn/15 text-warn ring-1 ring-inset ring-warn/25"
               title='מנהל משמרת (אחמ"ש)'
               body="בונה את הסידור ומשבץ — כניסה עם אימייל וסיסמה"
-              onClick={() => setMode("login")}
+              onClick={go("login")}
             />
             <DoorCard
-              icon="👮" iconBg="bg-blue-500"
+              icon="shield"
+              tone="bg-brand/15 text-brand ring-1 ring-inset ring-brand/25"
               title="מאבטח"
               body="מגיש זמינות וצופה בסידור — כניסה עם קוד צוות בלבד"
-              onClick={() => setMode("guard")}
+              onClick={go("guard")}
             />
 
             {busy && (
-              <div className="flex items-center justify-center gap-2 text-blue-300 text-sm pt-2">
+              <div className="flex items-center justify-center gap-2 text-muted text-sm pt-2">
                 <Spinner size={16} /> מכין את ההדגמה…
               </div>
             )}
-            {fail && <Alert tone="error">{fail}</Alert>}
+            {fail && <Alert tone="danger">{fail}</Alert>}
           </div>
         ) : mode === "guard" ? (
           <Panel
-            title="👮 כניסת מאבטח"
+            title="כניסת מאבטח"
             subtitle="בלי סיסמה — רק הקוד שקיבלת מהאחמ״ש והשם שלך"
-            onBack={reset}
+            onBack={go(null)}
+            onSubmit={submitJoin}
           >
-            <DarkField label="קוד צוות" hint="6 תווים, לדוגמה: K7M2XQ">
-              <input
-                className={`${darkInput} font-mono tracking-[0.3em] text-center text-lg uppercase`}
-                placeholder="______" maxLength={6} value={form.teamCode}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, teamCode: e.target.value.toUpperCase() }));
-                  setLocal(""); clearError?.();
-                }}
-                onKeyDown={onEnter(submitJoin)}
+            <Field label="קוד צוות" hint="6 תווים, לדוגמה: K7M2XQ" htmlFor={`${id}-code`}>
+              <Input
+                id={`${id}-code`}
+                className="font-mono tracking-[0.35em] text-center text-lg uppercase"
+                placeholder="______"
+                maxLength={6}
+                autoComplete="off"
+                autoCapitalize="characters"
+                value={form.teamCode}
+                onChange={set("teamCode")}
               />
-            </DarkField>
-            <DarkField label="שמך המלא" hint="בדיוק כמו שהאחמ״ש רשם אותך, אם כבר הוסיף אותך">
-              <input
-                className={darkInput} placeholder="ישראל ישראלי" value={form.guardName}
-                onChange={set("guardName")} onKeyDown={onEnter(submitJoin)}
+            </Field>
+            <Field
+              label="שמך המלא"
+              hint="בדיוק כמו שהאחמ״ש רשם אותך, אם כבר הוסיף אותך"
+              htmlFor={`${id}-guard-name`}
+            >
+              <Input
+                id={`${id}-guard-name`}
+                placeholder="ישראל ישראלי"
+                autoComplete="name"
+                value={form.guardName}
+                onChange={set("guardName")}
               />
-            </DarkField>
-            {fail && <Alert tone="error">{fail}</Alert>}
-            <Btn size="lg" className="w-full" onClick={submitJoin} loading={busy}>
+            </Field>
+            {fail && <Alert tone="danger">{fail}</Alert>}
+            <Btn type="submit" size="lg" className="w-full" loading={busy}>
               כניסה למערכת
             </Btn>
           </Panel>
         ) : mode === "login" ? (
-          <Panel title="🔐 כניסת מנהל משמרת" subtitle="הסידור שלך נשמר בענן וזמין מכל מכשיר" onBack={reset}>
-            <DarkField label="אימייל">
-              <input
-                className={darkInput} type="email" placeholder="name@example.com" autoComplete="email"
-                value={form.email} onChange={set("email")} onKeyDown={onEnter(submitLogin)}
+          <Panel
+            title="כניסת מנהל משמרת"
+            subtitle="הסידור שלך נשמר בענן וזמין מכל מכשיר"
+            onBack={go(null)}
+            onSubmit={submitLogin}
+          >
+            <Field label="אימייל" htmlFor={`${id}-email`}>
+              <Input
+                id={`${id}-email`}
+                type="email"
+                placeholder="name@example.com"
+                autoComplete="email"
+                value={form.email}
+                onChange={set("email")}
               />
-            </DarkField>
-            <DarkField label="סיסמה">
-              <input
-                className={darkInput} type="password" placeholder="••••••" autoComplete="current-password"
-                value={form.password} onChange={set("password")} onKeyDown={onEnter(submitLogin)}
+            </Field>
+            <Field label="סיסמה" htmlFor={`${id}-pw`}>
+              <Input
+                id={`${id}-pw`}
+                type="password"
+                placeholder="••••••"
+                autoComplete="current-password"
+                value={form.password}
+                onChange={set("password")}
               />
-            </DarkField>
-            {fail && <Alert tone="error">{fail}</Alert>}
-            <Btn size="lg" className="w-full" onClick={submitLogin} loading={busy}>
+            </Field>
+            {fail && <Alert tone="danger">{fail}</Alert>}
+            <Btn type="submit" size="lg" className="w-full" loading={busy}>
               כניסה
             </Btn>
             <button
-              onClick={() => { setMode("register"); setLocal(""); clearError?.(); }}
-              className="w-full text-blue-300 hover:text-white text-sm underline pt-1"
+              type="button"
+              onClick={go("register")}
+              className="w-full text-brand hover:text-brand-strong text-sm font-medium pt-1 cursor-pointer transition-colors"
             >
               אין לך חשבון? פתח צוות חדש
             </button>
           </Panel>
         ) : (
           <Panel
-            title="🆕 פתיחת צוות חדש"
+            title="פתיחת צוות חדש"
             subtitle="תוך רגע יהיה לך קוד צוות לשלוח למאבטחים"
-            onBack={reset}
+            onBack={go(null)}
+            onSubmit={submitRegister}
           >
-            <DarkField label="שמך המלא">
-              <input className={darkInput} placeholder="ישראל ישראלי" value={form.fullName} onChange={set("fullName")} />
-            </DarkField>
-            <DarkField label="שם הצוות / האתר" hint="אופציונלי — למשל: מוקד תל אביב">
-              <input className={darkInput} placeholder="הצוות שלי" value={form.teamName} onChange={set("teamName")} />
-            </DarkField>
-            <DarkField label="אימייל">
-              <input
-                className={darkInput} type="email" placeholder="name@example.com" autoComplete="email"
-                value={form.email} onChange={set("email")}
+            <Field label="שמך המלא" htmlFor={`${id}-name`}>
+              <Input
+                id={`${id}-name`}
+                placeholder="ישראל ישראלי"
+                autoComplete="name"
+                value={form.fullName}
+                onChange={set("fullName")}
               />
-            </DarkField>
-            <DarkField label="סיסמה" hint="לפחות 6 תווים">
-              <input
-                className={darkInput} type="password" placeholder="••••••" autoComplete="new-password"
-                value={form.password} onChange={set("password")}
+            </Field>
+            <Field
+              label="שם הצוות / האתר"
+              hint="אופציונלי — למשל: מוקד תל אביב"
+              htmlFor={`${id}-team`}
+            >
+              <Input
+                id={`${id}-team`}
+                placeholder="הצוות שלי"
+                autoComplete="organization"
+                value={form.teamName}
+                onChange={set("teamName")}
               />
-            </DarkField>
-            <DarkField label="אימות סיסמה">
-              <input
-                className={darkInput} type="password" placeholder="••••••" autoComplete="new-password"
-                value={form.confirm} onChange={set("confirm")} onKeyDown={onEnter(submitRegister)}
+            </Field>
+            <Field label="אימייל" htmlFor={`${id}-new-email`}>
+              <Input
+                id={`${id}-new-email`}
+                type="email"
+                placeholder="name@example.com"
+                autoComplete="email"
+                value={form.email}
+                onChange={set("email")}
               />
-            </DarkField>
-            {fail && <Alert tone="error">{fail}</Alert>}
-            <Btn size="lg" className="w-full" onClick={submitRegister} loading={busy}>
+            </Field>
+            <Field label="סיסמה" hint="לפחות 6 תווים" htmlFor={`${id}-new-pw`}>
+              <Input
+                id={`${id}-new-pw`}
+                type="password"
+                placeholder="••••••"
+                autoComplete="new-password"
+                value={form.password}
+                onChange={set("password")}
+              />
+            </Field>
+            <Field label="אימות סיסמה" htmlFor={`${id}-confirm`}>
+              <Input
+                id={`${id}-confirm`}
+                type="password"
+                placeholder="••••••"
+                autoComplete="new-password"
+                invalid={Boolean(form.confirm) && form.confirm !== form.password}
+                value={form.confirm}
+                onChange={set("confirm")}
+              />
+            </Field>
+            {fail && <Alert tone="danger">{fail}</Alert>}
+            <Btn type="submit" size="lg" className="w-full" loading={busy}>
               צור צוות וקבל קוד
             </Btn>
           </Panel>
         )}
+
+        <div className="flex justify-center mt-8">
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

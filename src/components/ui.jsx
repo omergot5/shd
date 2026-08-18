@@ -1,11 +1,24 @@
-// Shared visual primitives. Everything is RTL-first and mobile-first.
+// ============================================================
+// Shared visual primitives.
+//
+// RTL-first, mobile-first, and token-only: nothing in this file names a
+// literal colour, so the whole app re-themes from design/tokens.css.
+// If a screen needs a one-off style, it belongs here as a variant rather
+// than as a class-name soup at the call site.
+// ============================================================
+
+import { Icon } from "./icons.jsx";
+
+/* ------------------------------------------------------------------ *
+ * Per-guard identity colour
+ * ------------------------------------------------------------------ */
 
 const GUARD_COLORS = [
-  "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EF4444",
-  "#06B6D4", "#F97316", "#84CC16", "#EC4899", "#6366F1",
+  "#3B82F6", "#06B6D4", "#10B981", "#7C3AED", "#F43F5E",
+  "#F97316", "#84CC16", "#EC4899", "#4F46E5", "#F59E0B",
 ];
 
-/** Stable colour per guard so the same person looks the same everywhere. */
+/** Stable colour per guard, so the same person looks the same everywhere. */
 export const guardColor = (id) => {
   const s = String(id || "");
   let hash = 0;
@@ -13,194 +26,421 @@ export const guardColor = (id) => {
   return GUARD_COLORS[Math.abs(hash) % GUARD_COLORS.length];
 };
 
+// WCAG relative luminance. Picking the ink by measurement rather than by
+// eye is what guarantees every chip clears 4.5:1 — including the ones a
+// future palette edit adds.
+const toLinear = (c) => {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+};
+
+const luminance = (hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  return (
+    0.2126 * toLinear((n >> 16) & 255) +
+    0.7152 * toLinear((n >> 8) & 255) +
+    0.0722 * toLinear(n & 255)
+  );
+};
+
+const INK_DARK = "#0B1220";
+const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+/**
+ * Whichever of white / near-black is more readable on `hex`. Used for guard
+ * avatars and for shift cards, which are painted in a user-chosen colour —
+ * hardcoding white text there fails contrast on every light shift colour.
+ */
+export const readableInk = (hex) => {
+  const l = luminance(hex);
+  return ratio(l, 1) >= ratio(l, luminance(INK_DARK)) ? "#FFFFFF" : INK_DARK;
+};
+
 export const initials = (name = "") =>
   name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("");
 
-export const Badge = ({ children, color = "blue", className = "" }) => {
-  const cls = {
-    blue: "bg-blue-100 text-blue-800", green: "bg-green-100 text-green-800",
-    yellow: "bg-amber-100 text-amber-800", red: "bg-red-100 text-red-800",
-    gray: "bg-gray-100 text-gray-600", purple: "bg-purple-100 text-purple-800",
-    indigo: "bg-indigo-100 text-indigo-800",
-  }[color] || "bg-gray-100 text-gray-600";
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${cls} ${className}`}>
-      {children}
-    </span>
-  );
-};
+/* ------------------------------------------------------------------ *
+ * Surfaces
+ * ------------------------------------------------------------------ */
 
-export const Card = ({ children, className = "", ...rest }) => (
-  <div
-    className={`bg-white border border-gray-200/80 rounded-2xl p-5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] ${className}`}
+export const Card = ({ children, className = "", as: Tag = "div", ...rest }) => (
+  <Tag className={`glass rounded-2xl p-5 ${className}`} {...rest}>
+    {children}
+  </Tag>
+);
+
+/** A card that is also a button. Keeps the hover/focus contract in one place. */
+export const CardButton = ({ children, className = "", ...rest }) => (
+  <button
+    className={`glass rounded-2xl p-5 text-right w-full cursor-pointer transition-[background,border-color,transform] duration-200 hover:bg-surface-hover hover:border-hairline-strong active:scale-[0.995] ${className}`}
     {...rest}
   >
     {children}
-  </div>
+  </button>
 );
 
-export const Btn = ({
-  children, onClick, variant = "primary", size = "md",
-  disabled = false, loading = false, className = "", type = "button", title,
-}) => {
-  const v = {
-    primary: "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300 shadow-sm",
-    secondary: "bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50",
-    danger: "bg-red-600 text-white hover:bg-red-700 disabled:opacity-50",
-    success: "bg-green-600 text-white hover:bg-green-700 disabled:opacity-50",
-    ghost: "text-gray-600 hover:bg-gray-100 disabled:opacity-50",
-    outline: "border border-gray-300 text-gray-700 hover:bg-gray-50 bg-white disabled:opacity-50",
-  }[variant] || "";
-  const s = {
-    sm: "px-3 py-1.5 text-xs", md: "px-4 py-2.5 text-sm", lg: "px-6 py-3.5 text-base",
-  }[size] || "";
-  return (
-    <button
-      type={type} onClick={onClick} disabled={disabled || loading} title={title}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors disabled:cursor-not-allowed ${v} ${s} ${className}`}
-    >
-      {loading && <Spinner size={size === "lg" ? 18 : 14} />}
-      {children}
-    </button>
-  );
+/* ------------------------------------------------------------------ *
+ * Buttons
+ * ------------------------------------------------------------------ */
+
+const BTN_VARIANTS = {
+  primary:
+    "bg-brand text-on-brand hover:bg-brand-strong shadow-lg shadow-brand/20 disabled:bg-brand/40",
+  accent:
+    "bg-accent text-on-accent hover:bg-accent-strong shadow-lg shadow-accent/20 disabled:bg-accent/40",
+  danger: "bg-danger text-white hover:bg-danger/85",
+  // "glass" is the default secondary on a glass canvas — a solid grey
+  // button would punch a hole in the frosted surface behind it.
+  secondary: "glass text-content hover:bg-surface-hover hover:border-hairline-strong",
+  ghost: "text-muted hover:text-content hover:bg-surface-hover",
+  outline: "border border-hairline-strong text-content hover:bg-surface-hover",
 };
 
+// h-11 is 44px — the minimum comfortable touch target. `sm` is below it on
+// purpose and is only for dense desktop toolbars where rows are spaced out.
+const BTN_SIZES = {
+  sm: "h-9 px-3 text-xs gap-1.5",
+  md: "h-11 px-4 text-sm gap-2",
+  lg: "h-12 px-6 text-[15px] gap-2",
+};
+
+export const Btn = ({
+  children,
+  onClick,
+  variant = "primary",
+  size = "md",
+  icon,
+  disabled = false,
+  loading = false,
+  className = "",
+  type = "button",
+  ...rest
+}) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled || loading}
+    aria-busy={loading || undefined}
+    className={`inline-flex items-center justify-center rounded-xl font-semibold cursor-pointer
+      transition-[background-color,border-color,box-shadow,transform] duration-200
+      active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100
+      ${BTN_VARIANTS[variant] || BTN_VARIANTS.primary} ${BTN_SIZES[size] || BTN_SIZES.md} ${className}`}
+    {...rest}
+  >
+    {loading ? (
+      <Spinner size={size === "lg" ? 18 : 15} />
+    ) : (
+      icon && <Icon name={icon} size={size === "sm" ? 15 : 17} />
+    )}
+    {children}
+  </button>
+);
+
+/**
+ * Icon-only button. `label` is required — an unlabelled icon button is
+ * silent to a screen reader, and it doubles as the hover tooltip.
+ */
+export const IconBtn = ({ icon, label, onClick, size = "md", className = "", ...rest }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={label}
+    aria-label={label}
+    className={`inline-flex items-center justify-center rounded-xl text-muted cursor-pointer
+      hover:text-content hover:bg-surface-hover transition-colors duration-200
+      ${size === "sm" ? "h-9 w-9" : "h-11 w-11"} ${className}`}
+    {...rest}
+  >
+    <Icon name={icon} size={size === "sm" ? 16 : 19} />
+  </button>
+);
+
 export const Spinner = ({ size = 16, className = "" }) => (
-  <svg className={`animate-spin ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+  <svg
+    className={`animate-spin ${className}`}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
     <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
   </svg>
 );
 
-export const StatCard = ({ title, value, subtitle, icon, color = "blue", onClick }) => {
-  const cls = {
-    blue: "bg-blue-50 text-blue-600", green: "bg-green-50 text-green-600",
-    yellow: "bg-amber-50 text-amber-600", red: "bg-red-50 text-red-600",
-    purple: "bg-purple-50 text-purple-600",
-  }[color] || "bg-gray-50 text-gray-600";
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag
-      onClick={onClick}
-      className={`bg-white border border-gray-200/80 rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)] text-right w-full ${
-        onClick ? "hover:border-blue-300 hover:shadow-md transition-all cursor-pointer" : ""
-      }`}
-    >
-      <div className="flex items-center gap-3">
-        <div className={`w-11 h-11 rounded-xl ${cls} flex items-center justify-center text-xl flex-shrink-0`}>
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-[11px] text-gray-500 font-semibold">{title}</p>
-          <p className="text-2xl font-bold text-gray-900 leading-tight">{value}</p>
-          {subtitle && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{subtitle}</p>}
-        </div>
-      </div>
-    </Tag>
-  );
+/* ------------------------------------------------------------------ *
+ * Labels & status
+ * ------------------------------------------------------------------ */
+
+const TONES = {
+  brand: "bg-brand/15 text-brand ring-brand/25",
+  accent: "bg-accent/15 text-accent ring-accent/25",
+  warn: "bg-warn/15 text-warn ring-warn/25",
+  danger: "bg-danger/15 text-danger ring-danger/25",
+  info: "bg-info/15 text-info ring-info/25",
+  neutral: "bg-surface-sunken text-muted ring-hairline",
 };
 
-export const Avatar = ({ id, name, size = 36, ring = false, label }) => (
-  <div
-    className={`rounded-full flex items-center justify-center font-bold text-white flex-shrink-0 shadow-sm ${
-      ring ? "ring-2 ring-white ring-offset-1" : ""
-    }`}
-    style={{ backgroundColor: guardColor(id), width: size, height: size, fontSize: size * 0.36 }}
-    title={name}
+export const Badge = ({ children, tone = "neutral", icon, className = "" }) => (
+  <span
+    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold
+      ring-1 ring-inset ${TONES[tone] || TONES.neutral} ${className}`}
   >
-    {label || initials(name)}
-  </div>
-);
-
-export const Field = ({ label, hint, error, children }) => (
-  <div>
-    {label && <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>}
+    {icon && <Icon name={icon} size={12} strokeWidth={2.25} />}
     {children}
-    {hint && !error && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
-    {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
-  </div>
+  </span>
 );
 
-export const Input = (props) => (
-  <input
-    {...props}
-    className={`w-full border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-shadow disabled:bg-gray-50 disabled:text-gray-400 ${props.className || ""}`}
-  />
-);
-
-export const Select = (props) => (
-  <select
-    {...props}
-    className={`w-full border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 ${props.className || ""}`}
-  />
-);
-
-export const EmptyState = ({ icon = "📭", title, body, action }) => (
-  <Card className="text-center py-12">
-    <div className="text-5xl mb-3">{icon}</div>
-    <h3 className="font-bold text-gray-800 mb-1">{title}</h3>
-    {body && <p className="text-sm text-gray-500 max-w-sm mx-auto mb-4">{body}</p>}
-    {action}
-  </Card>
-);
-
-export const Alert = ({ tone = "info", children, onClose }) => {
-  const cls = {
-    info: "bg-blue-50 border-blue-200 text-blue-800",
-    warn: "bg-amber-50 border-amber-200 text-amber-800",
-    error: "bg-red-50 border-red-200 text-red-700",
-    success: "bg-green-50 border-green-200 text-green-800",
-  }[tone];
+export const Alert = ({ tone = "info", title, children, onClose }) => {
+  const icon = { info: "info", warn: "alert", danger: "alert", accent: "check-circle" }[tone] || "info";
   return (
-    <div className={`border rounded-xl px-4 py-3 text-sm flex items-start gap-3 ${cls}`} role="alert">
-      <div className="flex-1">{children}</div>
+    <div
+      role={tone === "danger" ? "alert" : "status"}
+      className={`rounded-xl px-4 py-3 text-sm flex items-start gap-3 ring-1 ring-inset ${
+        TONES[tone] || TONES.info
+      }`}
+    >
+      <Icon name={icon} size={17} className="mt-0.5" />
+      <div className="flex-1 min-w-0">
+        {title && <p className="font-semibold">{title}</p>}
+        <div className={title ? "text-content/80 mt-0.5" : ""}>{children}</div>
+      </div>
       {onClose && (
-        <button onClick={onClose} className="opacity-50 hover:opacity-100 text-lg leading-none" aria-label="סגור">
-          ×
+        <button
+          onClick={onClose}
+          aria-label="סגור התראה"
+          className="opacity-60 hover:opacity-100 cursor-pointer transition-opacity -m-1 p-1"
+        >
+          <Icon name="x" size={15} />
         </button>
       )}
     </div>
   );
 };
 
+export const Avatar = ({ id, name, size = 36, ring = false, label }) => {
+  const bg = guardColor(id);
+  return (
+    <div
+      className={`rounded-full flex items-center justify-center font-bold flex-shrink-0 select-none ${
+        ring ? "ring-2 ring-bg" : ""
+      }`}
+      style={{
+        backgroundColor: bg,
+        color: readableInk(bg),
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.38),
+      }}
+      title={name}
+    >
+      {label || initials(name)}
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ *
+ * Data display
+ * ------------------------------------------------------------------ */
+
+export const StatCard = ({ title, value, subtitle, icon, tone = "brand", onClick }) => {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag
+      onClick={onClick}
+      className={`glass rounded-2xl p-4 text-right w-full ${
+        onClick
+          ? "cursor-pointer hover:bg-surface-hover hover:border-hairline-strong transition-[background,border-color] duration-200"
+          : ""
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className={`w-11 h-11 rounded-xl flex items-center justify-center ring-1 ring-inset ${
+            TONES[tone] || TONES.brand
+          }`}
+        >
+          <Icon name={icon} size={20} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[11px] text-muted font-semibold">{title}</p>
+          <p className="text-2xl font-bold text-content leading-tight" data-numeric>
+            {value}
+          </p>
+          {subtitle && <p className="text-[11px] text-faint mt-0.5 truncate">{subtitle}</p>}
+        </div>
+      </div>
+    </Tag>
+  );
+};
+
+/** Horizontal meter for workload / coverage. */
+export const Meter = ({ value, max = 100, color = "rgb(var(--brand))", height = 6, label }) => {
+  const pct = Math.max(0, Math.min(100, (value / (max || 1)) * 100));
+  return (
+    <div
+      className="bg-surface-sunken rounded-full overflow-hidden"
+      style={{ height }}
+      role="meter"
+      aria-valuenow={Math.round(pct)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={label}
+    >
+      <div
+        className="rounded-full transition-[width] duration-500 ease-out"
+        style={{ width: `${pct}%`, height, backgroundColor: color }}
+      />
+    </div>
+  );
+};
+
+export const EmptyState = ({ icon = "inbox", title, body, action }) => (
+  <Card className="text-center py-12">
+    <div className="w-14 h-14 rounded-2xl bg-surface-sunken ring-1 ring-inset ring-hairline text-muted mx-auto mb-4 flex items-center justify-center">
+      <Icon name={icon} size={26} />
+    </div>
+    <h3 className="font-bold text-content mb-1">{title}</h3>
+    {body && <p className="text-sm text-muted max-w-sm mx-auto mb-4">{body}</p>}
+    {action}
+  </Card>
+);
+
 export const PageHeader = ({ title, subtitle, actions }) => (
   <div className="flex items-start justify-between gap-4 flex-wrap">
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
-      {subtitle && <p className="text-gray-500 text-sm mt-0.5">{subtitle}</p>}
+      <h1 className="text-2xl font-bold text-content tracking-tight">{title}</h1>
+      {subtitle && <p className="text-muted text-sm mt-1">{subtitle}</p>}
     </div>
     {actions && <div className="flex gap-2 flex-wrap">{actions}</div>}
   </div>
 );
 
-/** Horizontal meter used for workload / coverage bars. */
-export const Meter = ({ value, max = 100, color = "#3B82F6", height = 6 }) => (
-  <div className="bg-gray-100 rounded-full overflow-hidden" style={{ height }}>
-    <div
-      className="rounded-full transition-all duration-500"
-      style={{ width: `${Math.max(0, Math.min(100, (value / (max || 1)) * 100))}%`, height, backgroundColor: color }}
-    />
+/* ------------------------------------------------------------------ *
+ * Forms
+ * ------------------------------------------------------------------ */
+
+const CONTROL =
+  "w-full h-11 bg-surface-sunken border border-hairline rounded-xl px-3.5 text-sm text-content " +
+  "placeholder:text-faint transition-[border-color,box-shadow] duration-200 " +
+  "hover:border-hairline-strong focus:border-brand focus:ring-2 focus:ring-brand/30 focus:outline-none " +
+  "disabled:opacity-50 disabled:cursor-not-allowed";
+
+export const Field = ({ label, hint, error, htmlFor, children }) => (
+  <div>
+    {label && (
+      <label htmlFor={htmlFor} className="block text-sm font-medium text-content mb-1.5">
+        {label}
+      </label>
+    )}
+    {children}
+    {/* Hint and error share the slot, so the layout doesn't jump when a
+     * field goes invalid — and the error replaces rather than stacks. */}
+    {error ? (
+      <p className="text-xs text-danger mt-1.5 flex items-center gap-1">
+        <Icon name="alert" size={12} strokeWidth={2.25} />
+        {error}
+      </p>
+    ) : (
+      hint && <p className="text-xs text-faint mt-1.5">{hint}</p>
+    )}
   </div>
 );
 
-export const Modal = ({ open, onClose, title, children, wide = false }) => {
+export const Input = ({ className = "", invalid, ...rest }) => (
+  <input
+    {...rest}
+    aria-invalid={invalid || undefined}
+    className={`${CONTROL} ${invalid ? "border-danger focus:border-danger focus:ring-danger/30" : ""} ${className}`}
+  />
+);
+
+export const Select = ({ className = "", children, ...rest }) => (
+  <select {...rest} className={`${CONTROL} cursor-pointer pl-8 ${className}`}>
+    {children}
+  </select>
+);
+
+export const Textarea = ({ className = "", rows = 3, ...rest }) => (
+  <textarea {...rest} rows={rows} className={`${CONTROL} h-auto py-2.5 resize-y ${className}`} />
+);
+
+/**
+ * Segmented control. Better than a <select> for 2–4 mutually exclusive
+ * options because the alternatives stay visible, and better than radios
+ * because it fits a toolbar.
+ */
+export const Segmented = ({ value, onChange, options, size = "md", className = "" }) => (
+  <div
+    role="tablist"
+    className={`inline-flex bg-surface-sunken ring-1 ring-inset ring-hairline rounded-xl p-1 gap-1 ${className}`}
+  >
+    {options.map((opt) => {
+      const active = opt.value === value;
+      return (
+        <button
+          key={opt.value}
+          role="tab"
+          aria-selected={active}
+          onClick={() => onChange(opt.value)}
+          className={`inline-flex items-center gap-1.5 rounded-lg font-semibold cursor-pointer
+            transition-colors duration-200 whitespace-nowrap
+            ${size === "sm" ? "h-8 px-2.5 text-xs" : "h-9 px-3.5 text-sm"}
+            ${active ? "bg-brand text-on-brand shadow-sm" : "text-muted hover:text-content"}`}
+        >
+          {opt.icon && <Icon name={opt.icon} size={14} />}
+          {opt.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+/* ------------------------------------------------------------------ *
+ * Overlay
+ * ------------------------------------------------------------------ */
+
+export const Modal = ({ open, onClose, title, subtitle, children, wide = false, footer }) => {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4" dir="rtl">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-4"
+      dir="rtl"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <div
-        className={`relative bg-white w-full rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[92vh] overflow-auto ${
-          wide ? "sm:max-w-3xl" : "sm:max-w-lg"
-        }`}
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm animate-fade-up"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        className={`glass-raised relative w-full rounded-t-3xl sm:rounded-2xl max-h-[92vh]
+          flex flex-col animate-scale-in ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
       >
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
-          <h2 className="font-bold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none" aria-label="סגור">
-            ×
-          </button>
-        </div>
-        <div className="p-5">{children}</div>
+        <header className="flex items-start justify-between gap-3 px-5 py-4 border-b border-hairline">
+          <div className="min-w-0">
+            <h2 className="font-bold text-content">{title}</h2>
+            {subtitle && <p className="text-xs text-muted mt-0.5">{subtitle}</p>}
+          </div>
+          <IconBtn icon="x" label="סגור" onClick={onClose} size="sm" className="-mt-1 -ml-1" />
+        </header>
+        <div className="p-5 overflow-y-auto">{children}</div>
+        {footer && (
+          <footer className="px-5 py-4 border-t border-hairline flex gap-2 justify-start">
+            {footer}
+          </footer>
+        )}
       </div>
     </div>
   );
 };
+
+/** Loading placeholder that reserves the final height, so nothing shifts. */
+export const Skeleton = ({ className = "" }) => (
+  <div className={`relative overflow-hidden bg-surface-sunken rounded-lg ${className}`} aria-hidden="true">
+    <div className="absolute inset-y-0 w-1/3 bg-gradient-to-l from-transparent via-white/[0.07] to-transparent animate-sheen" />
+  </div>
+);
