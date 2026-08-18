@@ -4,8 +4,43 @@ import {
   PageHeader, readableInk, Select, StatCard,
 } from "../ui.jsx";
 import { Dot, Icon } from "../icons.jsx";
-import { dayName, formatDateHe, fromISODate, rangeLabelHe, shiftHours, shortDate, todayISO } from "../../lib/dates.js";
+import {
+  availabilityDeadline, dayName, formatDateHe, fromISODate, rangeLabelHe, shiftHours, shortDate,
+  toISODate, todayISO, weekByOffset,
+} from "../../lib/dates.js";
 import { availStatus } from "../../lib/autoAssign.js";
+
+/**
+ * Whole-week patterns. Two 12-hour shifts is the common security roster, but
+ * three-eights and four-sixes are just as standard elsewhere — and building a
+ * 4-shift week by hand is 28 identical trips through a modal.
+ */
+const WEEK_PATTERNS = [
+  {
+    key: "x2", title: "2 משמרות ליום", hint: "12 שעות כל אחת — הנפוץ באבטחה",
+    shifts: [
+      { label: "משמרת יום", startTime: "07:00", endTime: "19:00", type: "morning", color: "#3B82F6" },
+      { label: "משמרת לילה", startTime: "19:00", endTime: "07:00", type: "night", color: "#6366F1" },
+    ],
+  },
+  {
+    key: "x3", title: "3 משמרות ליום", hint: "8 שעות כל אחת — בוקר, צהריים, לילה",
+    shifts: [
+      { label: "בוקר", startTime: "07:00", endTime: "15:00", type: "morning", color: "#F59E0B" },
+      { label: "צהריים", startTime: "15:00", endTime: "23:00", type: "afternoon", color: "#3B82F6" },
+      { label: "לילה", startTime: "23:00", endTime: "07:00", type: "night", color: "#6366F1" },
+    ],
+  },
+  {
+    key: "x4", title: "4 משמרות ליום", hint: "6 שעות כל אחת — כיסוי צפוף",
+    shifts: [
+      { label: "בוקר", startTime: "06:00", endTime: "12:00", type: "morning", color: "#F59E0B" },
+      { label: "צהריים", startTime: "12:00", endTime: "18:00", type: "afternoon", color: "#3B82F6" },
+      { label: "ערב", startTime: "18:00", endTime: "00:00", type: "evening", color: "#8B5CF6" },
+      { label: "לילה", startTime: "00:00", endTime: "06:00", type: "night", color: "#6366F1" },
+    ],
+  },
+];
 
 const SHIFT_TEMPLATES = [
   { key: "day12",   label: "יום 07:00–19:00",    startTime: "07:00", endTime: "19:00", type: "morning",   color: "#3B82F6" },
@@ -210,6 +245,7 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
   const [editing, setEditing] = useState(null);
   const [spreadFrom, setSpreadFrom] = useState(null); // date whose layout is being copied
   const [spreadTo, setSpreadTo] = useState([]);
+  const [showFill, setShowFill] = useState(false);
   const blank = {
     date: weekDates[0], startTime: "07:00", endTime: "19:00", label: "משמרת יום",
     location: "כניסה ראשית", requiredGuards: 1, type: "morning", color: "#3B82F6",
@@ -242,21 +278,24 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
     setEditing(null);
   };
 
-  const fillWeek = async () => {
-    const existing = new Set(weekShifts.map((s) => `${s.date}|${s.startTime}`));
+  const fillWeek = async (pattern) => {
+    const existing = new Set(weekShifts.map((s) => `${s.date}|${s.startTime}|${s.endTime}`));
     const rows = [];
     for (const date of weekDates) {
-      for (const tpl of [SHIFT_TEMPLATES[0], SHIFT_TEMPLATES[1]]) {
-        if (existing.has(`${date}|${tpl.startTime}`)) continue;
+      for (const tpl of pattern.shifts) {
+        const key = `${date}|${tpl.startTime}|${tpl.endTime}`;
+        if (existing.has(key)) continue;
+        existing.add(key);
         rows.push({
           date,
-          label: tpl.type === "night" ? "משמרת לילה" : "משמרת יום",
+          label: tpl.label,
           startTime: tpl.startTime, endTime: tpl.endTime, type: tpl.type, color: tpl.color,
           location: "כניסה ראשית", requiredGuards: 1,
         });
       }
     }
     if (rows.length) await actions.addShifts(rows);
+    setShowFill(false);
   };
 
   /**
@@ -316,7 +355,7 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
         subtitle={`${rangeLabelHe(weekDates)} · ${weekShifts.length} משמרות`}
         actions={
           <>
-            <Btn variant="outline" icon="zap" onClick={fillWeek} loading={busy}>
+            <Btn variant="outline" icon="zap" onClick={() => setShowFill(true)} loading={busy}>
               מלא שבוע
             </Btn>
             <Btn icon="plus" onClick={() => openNew()}>
@@ -332,7 +371,7 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
           title="אין משמרות בשבוע הזה"
           body='לחץ "מלא שבוע" כדי ליצור משמרת יום ולילה לכל יום, או הוסף משמרת בודדת בהתאמה אישית.'
           action={
-            <Btn size="lg" icon="zap" onClick={fillWeek} loading={busy}>
+            <Btn size="lg" icon="zap" onClick={() => setShowFill(true)} loading={busy}>
               מלא שבוע
             </Btn>
           }
@@ -435,6 +474,56 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
           })}
         </div>
       )}
+
+      <Modal
+        open={showFill}
+        onClose={() => setShowFill(false)}
+        title={`מלא את ${rangeLabelHe(weekDates)}`}
+        footer={
+          <Btn variant="secondary" onClick={() => setShowFill(false)} className="flex-1">
+            ביטול
+          </Btn>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted">
+            בחר מבנה יום — הוא ייווצר לכל שבעת הימים בלחיצה אחת.
+          </p>
+          {WEEK_PATTERNS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => fillWeek(p)}
+              disabled={busy}
+              className="w-full text-right p-4 rounded-xl bg-surface-sunken ring-1 ring-inset ring-hairline
+                hover:ring-brand/50 hover:bg-surface-hover cursor-pointer transition-colors duration-200
+                disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="font-bold text-content text-sm">{p.title}</span>
+                <span className="text-[11px] text-faint" data-numeric>
+                  {p.shifts.length * weekDates.length} משמרות
+                </span>
+              </div>
+              <p className="text-xs text-muted mb-2.5">{p.hint}</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {p.shifts.map((s) => (
+                  <span
+                    key={s.startTime}
+                    className="text-[10px] font-bold px-2 py-1 rounded-lg"
+                    style={{ background: s.color, color: readableInk(s.color) }}
+                    data-numeric
+                  >
+                    {s.startTime}–{s.endTime}
+                  </span>
+                ))}
+              </div>
+            </button>
+          ))}
+          <Alert tone="info">
+            משמרת שכבר קיימת באותן שעות תדולג — אפשר להריץ בלי לייצר כפילויות.
+          </Alert>
+        </div>
+      </Modal>
 
       <Modal
         open={Boolean(spreadFrom)}
@@ -1218,6 +1307,69 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
 // TEAM
 // ============================================================
 
+/**
+ * When availability closes, as an offset from the start of the week rather
+ * than a date — so it recurs every week without anyone maintaining it. The
+ * preview line matters more than the inputs: "3 days before at 14:00" is
+ * abstract until you see which day and hour that actually lands on.
+ */
+function DeadlineSettings({ team, actions, busy }) {
+  const days = team?.deadlineDays ?? 3;
+  const hour = team?.deadlineHour ?? 14;
+  const nextWeek = weekByOffset(1);
+  const preview = availabilityDeadline(nextWeek[0], team);
+
+  return (
+    <Card>
+      <h2 className="font-bold text-content mb-1 flex items-center gap-2">
+        <Icon name="bell" size={18} className="text-brand" />
+        מועד הגשת זמינות
+      </h2>
+      <p className="text-sm text-muted mb-4">
+        השומרים רואים ספירה לאחור, וההתראה מתחדדת ככל שהמועד מתקרב.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 max-w-sm">
+        <Field label="כמה ימים לפני תחילת השבוע">
+          <Select
+            value={days}
+            onChange={(e) => actions.updateTeamSettings({ deadlineDays: Number(e.target.value) })}
+            disabled={busy}
+          >
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((d) => (
+              <option key={d} value={d}>
+                {d === 0 ? "ביום תחילת השבוע" : d === 1 ? "יום אחד" : `${d} ימים`}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="שעה">
+          <Select
+            value={hour}
+            onChange={(e) => actions.updateTeamSettings({ deadlineHour: Number(e.target.value) })}
+            disabled={busy}
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>
+                {String(h).padStart(2, "0")}:00
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+
+      <Alert tone="info" className="mt-4">
+        לשבוע הבא ({rangeLabelHe(nextWeek)}) ההגשה נסגרת ב
+        <b>
+          {dayName(toISODate(preview))}, {preview.toLocaleDateString("he-IL")} בשעה{" "}
+          {String(hour).padStart(2, "0")}:00
+        </b>
+        . אפשר לפטור שומר מסוים דרך אייקון הפעמון ברשימה למטה.
+      </Alert>
+    </Card>
+  );
+}
+
 export function TeamView({ user, team, guards, actions, busy, onSeedDemo }) {
   const [copied, setCopied] = useState(null); // 'code' | 'message' | null
   const [name, setName] = useState("");
@@ -1248,6 +1400,8 @@ export function TeamView({ user, team, guards, actions, busy, onSeedDemo }) {
   return (
     <div className="space-y-6">
       <PageHeader title="הצוות שלי" subtitle={team?.name || "נהל שומרים ושתף את קוד הצוות"} />
+
+      <DeadlineSettings team={team} actions={actions} busy={busy} />
 
       <Card>
         <div className="flex items-center justify-between gap-6 flex-wrap">
@@ -1364,15 +1518,36 @@ export function TeamView({ user, team, guards, actions, busy, onSeedDemo }) {
                       )}
                     </p>
                     <p className="text-xs text-faint">{g.phone || "—"}</p>
+                    {g.deadlineExempt && (
+                      <Badge tone="info" icon="bell">
+                        פטור ממועד ההגשה
+                      </Badge>
+                    )}
                   </div>
                 </div>
-                <IconBtn
-                  icon="trash"
-                  label={`הסר את ${g.name} מהצוות`}
-                  size="sm"
-                  className="hover:text-danger"
-                  onClick={() => actions.removeGuard(g.id)}
-                />
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {/* Per-guard exception. A deadline with no way to grant one
+                      is a deadline that generates phone calls — reservists,
+                      illness, a guard who joined mid-week. */}
+                  <IconBtn
+                    icon="bell"
+                    size="sm"
+                    label={
+                      g.deadlineExempt
+                        ? `החזר את ${g.name} למועד ההגשה הרגיל`
+                        : `פטור את ${g.name} ממועד ההגשה`
+                    }
+                    className={g.deadlineExempt ? "text-info" : ""}
+                    onClick={() => actions.setGuardExempt(g.id, !g.deadlineExempt)}
+                  />
+                  <IconBtn
+                    icon="trash"
+                    label={`הסר את ${g.name} מהצוות`}
+                    size="sm"
+                    className="hover:text-danger"
+                    onClick={() => actions.removeGuard(g.id)}
+                  />
+                </div>
               </li>
             ))}
           </ul>

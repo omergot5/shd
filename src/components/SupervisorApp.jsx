@@ -7,6 +7,7 @@ import SmartAssign from "./SmartAssign.jsx";
 import {
   SupDashboard, ShiftMgmt, AvailView, AssignView, ScheduleMgmt, SwapMgmt, TaskMgmt, TeamView,
 } from "./supervisor/views.jsx";
+import CalendarView from "./supervisor/CalendarView.jsx";
 import { rangeLabelHe, weekByOffset } from "../lib/dates.js";
 
 // Charts pull in recharts (~400KB). Nobody sees them on first load, so they
@@ -15,6 +16,7 @@ const AnalyticsDash = lazy(() => import("./supervisor/Analytics.jsx"));
 
 const NAV = [
   { id: "dashboard", label: "לוח בקרה", icon: "chart", group: "ראשי" },
+  { id: "calendar", label: "יומן", icon: "grid", group: "ראשי" },
   { id: "shifts", label: "ניהול משמרות", icon: "calendar", group: "תכנון", week: true },
   { id: "availability", label: "זמינות שומרים", icon: "check-circle", group: "תכנון", week: true },
   { id: "smart", label: "שיבוץ חכם", icon: "zap", group: "תכנון", week: true, highlight: true },
@@ -122,6 +124,7 @@ export default function SupervisorApp({ state }) {
         onSeedDemo={startDemo}
       />
     ),
+    calendar: <CalendarView shifts={shifts} guards={guards} onNavigate={go} />,
     shifts: <ShiftMgmt {...common} />,
     availability: <AvailView {...common} />,
     smart: (

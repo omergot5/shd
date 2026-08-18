@@ -6,7 +6,8 @@ import {
 import { Icon } from "./icons.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 import {
-  addDays, dayName, formatDateHe, fromISODate, rangeLabelHe, shortDate, todayISO, weekByOffset,
+  addDays, availabilityDeadline, countdownHe, dayName, formatDateHe, fromISODate, rangeLabelHe,
+  shortDate, toISODate, todayISO, weekByOffset,
 } from "../lib/dates.js";
 import { availStatus } from "../lib/autoAssign.js";
 
@@ -206,7 +207,7 @@ function MySchedule({ user, guards, shifts }) {
 // AVAILABILITY SUBMISSION
 // ============================================================
 
-function MyAvailability({ user, shifts, availability, actions, busy }) {
+function MyAvailability({ user, team, shifts, availability, actions, busy }) {
   const [offset, setOffset] = useState(1);
   const weekDates = useMemo(() => weekByOffset(offset), [offset]);
   const weekShifts = shifts.filter((s) => weekDates.includes(s.date));
@@ -214,17 +215,15 @@ function MyAvailability({ user, shifts, availability, actions, busy }) {
   // The week is only locked once it has actually started — a guard should
   // never be stuck unable to answer for a week that is still in the future.
   const weekStarted = weekDates[0] < todayISO();
-  // Recommended cut-off: 14:00, three days before the week begins.
-  const deadline = useMemo(() => {
-    const d = fromISODate(addDays(weekDates[0], -3));
-    d.setHours(14, 0, 0, 0);
-    return d;
-  }, [weekDates]);
+  const deadline = useMemo(() => availabilityDeadline(weekDates[0], team), [weekDates, team]);
   const pastDeadline = new Date() > deadline && !weekStarted;
+  const hoursLeft = (deadline - new Date()) / 3600000;
+  const deadlineLabel = `${dayName(toISODate(deadline))}, ${deadline.toLocaleDateString("he-IL")} בשעה ${String(deadline.getHours()).padStart(2, "0")}:00`;
 
   const answered = weekShifts.filter(
     (s) => availStatus(availability, user.id, s.id) !== "unknown"
   ).length;
+  const remaining = weekShifts.length - answered;
 
   const setStatus = (shift, status) => {
     const raw = availability[`${user.id}-${shift.id}`];
@@ -272,13 +271,26 @@ function MyAvailability({ user, shifts, availability, actions, busy }) {
               לא ניתן לשנות זמינות. פנה לאחמ״ש אם משהו השתנה.
             </Alert>
           ) : pastDeadline ? (
-            <Alert tone="warn" title="המועד המומלץ להגשה חלף">
-              ({deadline.toLocaleDateString("he-IL")} בשעה 14:00) — עדיין אפשר להגיש, אבל ייתכן
-              שהאחמ״ש כבר בנה את הסידור.
+            <Alert
+              tone={user.deadlineExempt ? "info" : "danger"}
+              title={user.deadlineExempt ? "המועד חלף — אבל אושר לך להגיש" : "המועד להגשה חלף"}
+            >
+              {deadlineLabel} ({countdownHe(deadline)}).{" "}
+              {user.deadlineExempt
+                ? 'האחמ״ש פתח לך את ההגשה באופן אישי, אפשר להמשיך כרגיל.'
+                : "עדיין אפשר להגיש, אבל ייתכן שהאחמ״ש כבר בנה את הסידור — עדכן אותו."}
             </Alert>
           ) : (
-            <Alert tone="info">
-              מומלץ להגיש עד {deadline.toLocaleDateString("he-IL")} בשעה 14:00
+            // Urgency escalates on its own as the deadline closes. A guard who
+            // opens the app the night before should not have to work out from a
+            // date whether that is soon.
+            <Alert
+              tone={hoursLeft <= 24 ? "warn" : "info"}
+              title={hoursLeft <= 24 ? "ההגשה נסגרת בקרוב" : undefined}
+              icon={hoursLeft <= 24 ? "bell" : undefined}
+            >
+              יש להגיש עד {deadlineLabel} — <b>{countdownHe(deadline)}</b>
+              {remaining > 0 && ` · נותרו ${remaining} משמרות ללא מענה`}
             </Alert>
           )}
 
@@ -646,6 +658,7 @@ export default function GuardApp({ state }) {
     availability: (
       <MyAvailability
         user={user}
+        team={team}
         shifts={shifts}
         availability={availability}
         actions={actions}

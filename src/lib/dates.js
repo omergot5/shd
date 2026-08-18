@@ -26,6 +26,52 @@ export const fromISODate = (iso) => new Date(`${iso}T12:00:00`);
 
 export const todayISO = () => toISODate(new Date());
 
+/**
+ * When availability for a week closes. Stored on the team as an offset rather
+ * than a date so it recurs every week with nobody maintaining it.
+ *
+ * Both sides must agree on this or the guard is told one thing and locked out
+ * by another, so it lives here and is imported by guard and supervisor alike.
+ */
+/**
+ * Six full weeks covering a month, Sunday-first and always 42 cells. A grid
+ * that changes height between months makes the surrounding layout jump, so
+ * the trailing days of the neighbouring months are included rather than
+ * padded with blanks.
+ */
+export function monthGrid(year, month) {
+  const first = new Date(year, month, 1);
+  const start = addDays(toISODate(first), -first.getDay());
+  return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+}
+
+export const monthLabelHe = (year, month) => `${MONTHS_HE[month]} ${year}`;
+
+export const DEADLINE_DEFAULTS = { days: 3, hour: 14 };
+
+export function availabilityDeadline(weekStartISO, team) {
+  const days = team?.deadlineDays ?? DEADLINE_DEFAULTS.days;
+  const hour = team?.deadlineHour ?? DEADLINE_DEFAULTS.hour;
+  const d = fromISODate(addDays(weekStartISO, -days));
+  d.setHours(hour, 0, 0, 0);
+  return d;
+}
+
+/** "עוד יומיים ו-3 שעות" / "עבר לפני 5 שעות" — never a bare timestamp. */
+export function countdownHe(target, now = new Date()) {
+  const ms = target - now;
+  const past = ms < 0;
+  const mins = Math.floor(Math.abs(ms) / 60000);
+  const days = Math.floor(mins / 1440);
+  const hours = Math.floor((mins % 1440) / 60);
+  const parts = [];
+  if (days) parts.push(days === 1 ? "יום" : days === 2 ? "יומיים" : `${days} ימים`);
+  if (hours && days < 3) parts.push(hours === 1 ? "שעה" : hours === 2 ? "שעתיים" : `${hours} שעות`);
+  if (!parts.length) parts.push(mins <= 1 ? "פחות מדקה" : `${mins} דקות`);
+  const span = parts.join(" ו-");
+  return past ? `עבר לפני ${span}` : `עוד ${span}`;
+}
+
 export const addDays = (iso, n) => {
   const d = fromISODate(iso);
   d.setDate(d.getDate() + n);

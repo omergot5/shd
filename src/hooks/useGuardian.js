@@ -405,6 +405,22 @@ export function useGuardian() {
           () => api.removeGuard(id)
         ),
 
+      updateTeamSettings: (patch) =>
+        optimistic(
+          (d) => ({ ...d, team: { ...d.team, ...patch } }),
+          () => api.updateTeamSettings(dataRef.current.team?.code, patch)
+        ),
+
+      setGuardExempt: (id, exempt) =>
+        optimistic(
+          (d) => ({
+            ...d,
+            guards: d.guards.map((g) => (g.id === id ? { ...g, deadlineExempt: exempt } : g)),
+            members: d.members.map((g) => (g.id === id ? { ...g, deadlineExempt: exempt } : g)),
+          }),
+          () => api.setGuardExempt(id, exempt)
+        ),
+
       createSwap: (payload) =>
         run(async () => {
           await api.createSwap({ ...payload, teamCode: dataRef.current.team?.code });

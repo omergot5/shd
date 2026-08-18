@@ -52,6 +52,7 @@ export const profileFromRow = (row) => ({
   role: row.role,
   teamCode: row.team_code,
   isSupervisor: row.role === "supervisor",
+  deadlineExempt: row.deadline_exempt === true,
 });
 
 export const availKey = (guardId, shiftId) => `${guardId}-${shiftId}`;
@@ -241,7 +242,16 @@ export async function loadTeam(teamCode) {
   const profiles = (profilesRes.data || []).map(profileFromRow);
 
   return {
-    team: teamRes.data ? { code: teamRes.data.code, name: teamRes.data.name, ownerId: teamRes.data.owner_id } : null,
+    team: teamRes.data
+      ? {
+          code: teamRes.data.code,
+          name: teamRes.data.name,
+          ownerId: teamRes.data.owner_id,
+          deadlineDays: teamRes.data.avail_deadline_days ?? 3,
+          deadlineHour: teamRes.data.avail_deadline_hour ?? 14,
+          reminders: teamRes.data.avail_reminders !== false,
+        }
+      : null,
     members: profiles,
     guards: profiles.filter((p) => p.role === "guard"),
     supervisors: profiles.filter((p) => p.role === "supervisor"),
@@ -359,6 +369,21 @@ export async function addGuard({ name, phone, teamCode }) {
     throw new Error(error.message);
   }
   return profileFromRow(data);
+}
+
+export async function updateTeamSettings(teamCode, { deadlineDays, deadlineHour, reminders }) {
+  const patch = {};
+  if (deadlineDays !== undefined) patch.avail_deadline_days = deadlineDays;
+  if (deadlineHour !== undefined) patch.avail_deadline_hour = deadlineHour;
+  if (reminders !== undefined) patch.avail_reminders = reminders;
+  const { error } = await supabase.from("gs_teams").update(patch).eq("code", teamCode);
+  if (error) throw new Error(error.message);
+}
+
+export async function setGuardExempt(profileId, exempt) {
+  const { error } = await supabase
+    .from("gs_profiles").update({ deadline_exempt: exempt }).eq("id", profileId);
+  if (error) throw new Error(error.message);
 }
 
 export async function removeGuard(profileId) {
