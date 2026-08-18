@@ -195,7 +195,17 @@ export async function joinAsGuard({ teamCode, fullName }) {
   }
 
   const row = Array.isArray(rows) ? rows[0] : rows;
-  return { id: row.profile_id, teamCode: row.team_code, name: row.full_name, role: "guard", isSupervisor: false };
+  return {
+    id: row.profile_id,
+    teamCode: row.team_code,
+    name: row.full_name,
+    role: "guard",
+    isSupervisor: false,
+    // True when nobody on the roster matched this name. Usually a genuinely
+    // new person — but it is also what a misspelling looks like, and this is
+    // the last moment the guard can still correct it themselves.
+    isNewProfile: row.created === true,
+  };
 }
 
 export async function logout() {
@@ -335,7 +345,19 @@ export async function addGuard({ name, phone, teamCode }) {
     .from("gs_profiles")
     .insert({ full_name: name.trim(), phone: phone?.trim() || null, role: "guard", team_code: teamCode })
     .select().single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    // One guard per name per team is enforced by a unique index — that is what
+    // stops a returning guard being duplicated. The cost is that two real
+    // people who share a name need distinguishing, and Postgres explains that
+    // in English constraint-speak. Say it in the user's language instead.
+    if (error.code === "23505") {
+      throw coded(
+        "DUPLICATE_NAME",
+        `כבר יש בצוות שומר בשם "${name.trim()}". הוסף משהו שיבדיל ביניהם — למשל שם משפחה או ראשי תיבות`
+      );
+    }
+    throw new Error(error.message);
+  }
   return profileFromRow(data);
 }
 

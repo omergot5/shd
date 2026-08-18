@@ -200,6 +200,29 @@ const { error: blankErr } = await guardSloppy.rpc("gs_join_team", { p_code: CODE
 check("a blank name is rejected rather than creating an unnamed guard",
   Boolean(blankErr) && /NAME_REQUIRED/.test(blankErr?.message || ""), blankErr?.message);
 
+// Adoption matches on the name, so a misspelling is a different person as far
+// as the database is concerned and gets a new profile. That is the safe
+// default, but the client has to be able to tell the guard it happened —
+// hence the `created` flag.
+const one = Array.isArray(readopt) ? readopt[0] : readopt;
+check("adopting an existing profile reports created=false", one?.created === false, `got ${one?.created}`);
+
+const typo = fresh();
+await typo.auth.signInAnonymously();
+const { data: typoRow } = await typo.rpc("gs_join_team", { p_code: CODE, p_full_name: "גיא לוו" });
+const typoOne = Array.isArray(typoRow) ? typoRow[0] : typoRow;
+check("a misspelled name creates a new profile and says so", typoOne?.created === true, `got ${typoOne?.created}`);
+check("the misspelled profile is genuinely separate", typoOne?.profile_id !== profA.profile_id);
+
+// The unique index is what makes name-based adoption unambiguous: it
+// guarantees at most one guard per name per team, so there is never a
+// question of *which* גיא לוי is being adopted.
+const { error: dupErr } = await sup.from("gs_profiles").insert({
+  full_name: "גיא לוי", role: "guard", team_code: CODE,
+});
+check("the supervisor cannot add a second guard with the same name",
+  dupErr?.code === "23505", dupErr?.code || "insert unexpectedly allowed");
+
 // Adoption transfers the profile to the session that just claimed it, so the
 // superseded session must lose its write access. That is the whole point —
 // otherwise every stale anonymous session a guard ever had would keep the

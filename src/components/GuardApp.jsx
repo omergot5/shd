@@ -629,6 +629,14 @@ export default function GuardApp({ state }) {
   } = state;
   const [view, setView] = useState("schedule");
 
+  // Nobody on the roster matched this name, so a fresh profile was made. That
+  // is right for a genuinely new guard and wrong for a typo — and the two look
+  // identical from here. Only the guard knows which, so ask them while they
+  // can still fix it, rather than letting a stray second entry sit in the
+  // supervisor's roster unnoticed.
+  const [nameNoticeSeen, setNameNoticeSeen] = useState(false);
+  const showNameNotice = user.isNewProfile && !nameNoticeSeen;
+
   const incoming = swapRequests.filter(
     (r) => r.toGuard === user.id && r.status === "pending"
   ).length;
@@ -688,6 +696,14 @@ export default function GuardApp({ state }) {
           {error && (
             <Alert tone="danger" onClose={clearError}>
               {error}
+            </Alert>
+          )}
+          {showNameNotice && (
+            <Alert tone="warn" onClose={() => setNameNoticeSeen(true)}>
+              <b>נרשמת בתור "{user.name}" — פרופיל חדש.</b>{" "}
+              אם האחמ״ש כבר הוסיף אותך לצוות, ייתכן שהשם נכתב קצת אחרת. במקרה כזה
+              צא וכנס שוב עם השם המדויק שהוא רשם, אחרת המשמרות שלך יגיעו לרשומה השנייה.
+              אם זו הפעם הראשונה שלך — הכל תקין, אפשר להתעלם.
             </Alert>
           )}
           {views[view]}
