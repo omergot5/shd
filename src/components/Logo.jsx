@@ -11,13 +11,31 @@
 // segment is a one-character change.
 // ============================================================
 
-const SEGMENTS = 12;
-const UNIT = 120 / SEGMENTS; // 10 units per segment
-const DASH = 6.6; // segment body
-const GAP = 120 - DASH; // everything else — leaves exactly one dash visible
+// Two interlocking cycles, woven. Each ring is an open arc rather than a
+// closed circle — the break is what makes it read as a rotation instead of
+// a wedding band, and the interlace is the handover from one shift to the
+// next. Blue hands off to emerald, continuously.
+//
+// Geometry is exact, not eyeballed: with pathLength="360" one dash unit is
+// one degree, so the arc sweep and the position of the gap are both stated
+// in plain degrees.
 
-/** Segment indices that render in the accent colour: the assigned block. */
-const ASSIGNED = new Set([9, 10, 11, 0]);
+const R = 9;
+const LEFT = 18.5; // ring centres, 11 apart -> they overlap by 7
+const RIGHT = 29.5;
+const SWEEP = 300; // degrees of ring drawn; the missing 60 is the gap
+const STROKE = 4.2;
+
+/**
+ * A short piece of the *right* ring, redrawn on top of the left one at the
+ * upper crossing. The rings intersect twice; painting one strand over the
+ * other at exactly one of those two points is the whole trick behind a woven
+ * look. Do it at both and they just sit flat on each other.
+ *
+ * Endpoints are the points on the right ring at 212.3° and 252.3°, which
+ * bracket the upper crossing at (24, 16.88).
+ */
+const WEAVE = "M21.89 19.20 A9 9 0 0 1 26.76 15.43";
 
 export function LogoMark({ size = 40, className = "", title }) {
   return (
@@ -32,31 +50,29 @@ export function LogoMark({ size = 40, className = "", title }) {
       aria-hidden={title ? undefined : true}
       focusable="false"
     >
-      {/* 12 o'clock is at -90°, so the ring starts where a clock starts. */}
-      <g transform="rotate(-90 24 24)">
-        {Array.from({ length: SEGMENTS }, (_, i) => (
-          <circle
-            key={i}
-            cx="24"
-            cy="24"
-            r="18"
-            pathLength="120"
-            strokeWidth="5"
-            strokeLinecap="round"
-            strokeDasharray={`${DASH} ${GAP}`}
-            strokeDashoffset={-i * UNIT}
-            stroke={ASSIGNED.has(i) ? "rgb(var(--accent-strong))" : "rgb(var(--brand))"}
-            opacity={ASSIGNED.has(i) ? 1 : 0.42}
-          />
-        ))}
+      <g strokeWidth={STROKE} strokeLinecap="round">
+        {/* Right ring first, so the left one lands on top of it. */}
+        <circle
+          cx={RIGHT}
+          cy="24"
+          r={R}
+          pathLength="360"
+          stroke="rgb(var(--accent-strong))"
+          strokeDasharray={`${SWEEP} ${360 - SWEEP}`}
+          strokeDashoffset={-75} /* gap sits lower-right */
+        />
+        <circle
+          cx={LEFT}
+          cy="24"
+          r={R}
+          pathLength="360"
+          stroke="rgb(var(--brand))"
+          strokeDasharray={`${SWEEP} ${360 - SWEEP}`}
+          strokeDashoffset={-255} /* gap sits upper-left */
+        />
+        {/* …and the weave: right ring passes back over the left at the top. */}
+        <path d={WEAVE} stroke="rgb(var(--accent-strong))" />
       </g>
-
-      {/* Hands, parked at the leading edge of the assigned block. */}
-      <g stroke="rgb(var(--text))" strokeWidth="2.6" strokeLinecap="round">
-        <path d="M24 24V15" />
-        <path d="M24 24h6.5" opacity="0.6" />
-      </g>
-      <circle cx="24" cy="24" r="2.4" fill="rgb(var(--accent-strong))" />
     </svg>
   );
 }

@@ -101,42 +101,75 @@ export async function getMyProfile() {
   return profileFromRow(data);
 }
 
-export async function registerSupervisor({ email, password, fullName, teamName }) {
-  const { data, error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password });
-  if (error) throw translateAuthError(error);
+const coded = (code, message) => {
+  const err = new Error(message || code);
+  err.code = code;
+  return err;
+};
 
-  // With "confirm email" on, signUp returns a user but no session.
-  if (!data.session) {
-    const err = new Error("EMAIL_CONFIRMATION_REQUIRED");
-    err.code = "EMAIL_CONFIRMATION_REQUIRED";
-    throw err;
-  }
-
-  const { data: rows, error: rpcErr } = await supabase.rpc("gs_create_team", {
-    p_team_name: teamName?.trim() || `הצוות של ${fullName?.trim() || "האחמ\"ש"}`,
+/** Creates the team + supervisor profile for whoever is signed in right now. */
+export async function createTeamForCurrentUser({ fullName, teamName }) {
+  const { data: rows, error } = await supabase.rpc("gs_create_team", {
+    p_team_name: teamName?.trim() || `הצוות של ${fullName?.trim() || 'האחמ"ש'}`,
     p_full_name: fullName?.trim() || "מנהל משמרת",
   });
-  if (rpcErr) throw new Error("לא הצלחנו ליצור את הצוות — נסה שוב");
-
+  if (error) throw new Error("לא הצלחנו ליצור את הצוות — נסה שוב");
   const row = Array.isArray(rows) ? rows[0] : rows;
   return { teamCode: row.team_code, profileId: row.profile_id };
 }
 
+export async function registerSupervisor({ email, password, fullName, teamName }) {
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim().toLowerCase(),
+    password,
+  });
+  if (error) throw translateAuthError(error);
+
+  // When "confirm email" is on, Supabase does not reveal that an address is
+  // already taken — it returns a user with an empty `identities` array and no
+  // session, which looks identical to a fresh signup. Without this check the
+  // user is told to go and confirm an email that will never arrive.
+  if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    throw coded("ALREADY_REGISTERED", "האימייל הזה כבר רשום — התחבר במקום, או אפס סיסמה");
+  }
+
+  if (!data.session) throw coded("EMAIL_CONFIRMATION_REQUIRED");
+
+  return createTeamForCurrentUser({ fullName, teamName });
+}
+
 export async function loginSupervisor({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({
+  const { error } = await supabase.auth.signInWithPassword({
     email: email.trim().toLowerCase(),
     password,
   });
   if (error) throw translateAuthError(error);
 
   const profile = await getMyProfile();
-  if (!profile) {
-    // Signed up but never finished creating a team (e.g. closed the tab).
-    const err = new Error("NO_TEAM");
-    err.code = "NO_TEAM";
-    throw err;
-  }
+  // Authenticated, but with no team: either signup was interrupted, or the
+  // account predates this schema. Previously a dead end — the app said
+  // "register again", which cannot work because the address is already taken.
+  // The caller now finishes onboarding instead.
+  if (!profile) throw coded("NO_TEAM");
   return profile;
+}
+
+/**
+ * Sends a recovery link. Always resolves, even for an address with no
+ * account: telling a stranger which emails are registered is an
+ * account-enumeration leak, so the UI says the same thing either way.
+ */
+export async function requestPasswordReset(email) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo: window.location.origin,
+  });
+  if (error && /rate limit|too many/i.test(error.message)) throw translateAuthError(error);
+}
+
+/** Sets a new password for the session opened by a recovery link. */
+export async function updatePassword(password) {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw translateAuthError(error);
 }
 
 export async function joinAsGuard({ teamCode, fullName }) {

@@ -12,7 +12,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false,
+    // Required for the password-recovery link: the token arrives in the URL
+    // fragment and has to be exchanged for a session before the user can set
+    // a new password.
+    detectSessionInUrl: true,
     storageKey: "gs-auth",
   },
 });

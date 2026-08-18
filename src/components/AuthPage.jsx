@@ -86,9 +86,13 @@ const Panel = ({ title, subtitle, onBack, onSubmit, children }) => (
   </form>
 );
 
-export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, error, clearError }) {
-  const [mode, setMode] = useState(null); // null | 'login' | 'register' | 'guard'
+export default function AuthPage({
+  onRegister, onLogin, onJoin, onDemo, onForgot, busy, error, clearError,
+}) {
+  // null | 'login' | 'register' | 'guard' | 'forgot'
+  const [mode, setMode] = useState(null);
   const [local, setLocal] = useState("");
+  const [sent, setSent] = useState(false);
   const id = useId();
 
   const [form, setForm] = useState({
@@ -105,6 +109,7 @@ export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, er
   const go = (next) => () => {
     setMode(next);
     setLocal("");
+    setSent(false);
     clearError?.();
   };
 
@@ -138,7 +143,19 @@ export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, er
     try {
       await onLogin({ email: form.email, password: form.password });
     } catch (e) {
-      setLocal(e.code === "NO_TEAM" ? "החשבון קיים אך אין לו צוות — הירשם מחדש" : e.message);
+      // NO_TEAM is not a failure — the parent has already switched to the
+      // finish-setup screen, so showing an error here would contradict it.
+      if (e.code !== "NO_TEAM") setLocal(e.message);
+    }
+  };
+
+  const submitForgot = async () => {
+    if (!form.email.trim()) return setLocal("יש להזין את האימייל שלך");
+    try {
+      await onForgot(form.email);
+      setSent(true);
+    } catch (e) {
+      setLocal(e.message);
     }
   };
 
@@ -267,13 +284,57 @@ export default function AuthPage({ onRegister, onLogin, onJoin, onDemo, busy, er
             <Btn type="submit" size="lg" className="w-full" loading={busy}>
               כניסה
             </Btn>
-            <button
-              type="button"
-              onClick={go("register")}
-              className="w-full text-brand hover:text-brand-strong text-sm font-medium pt-1 cursor-pointer transition-colors"
-            >
-              אין לך חשבון? פתח צוות חדש
-            </button>
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <button
+                type="button"
+                onClick={go("register")}
+                className="text-brand hover:text-brand-strong text-sm font-medium cursor-pointer transition-colors"
+              >
+                אין לך חשבון? פתח צוות חדש
+              </button>
+              <button
+                type="button"
+                onClick={go("forgot")}
+                className="text-muted hover:text-content text-sm cursor-pointer transition-colors"
+              >
+                שכחתי סיסמה
+              </button>
+            </div>
+          </Panel>
+        ) : mode === "forgot" ? (
+          <Panel
+            title="איפוס סיסמה"
+            subtitle="נשלח אליך קישור למייל. הוא תקף לשעה אחת."
+            onBack={go("login")}
+            onSubmit={submitForgot}
+          >
+            {sent ? (
+              <>
+                <Alert tone="accent" title="נשלח">
+                  אם קיים חשבון עם הכתובת הזו, הקישור בדרך. בדוק גם בספאם.
+                </Alert>
+                <Btn variant="secondary" className="w-full" onClick={go("login")}>
+                  חזרה לכניסה
+                </Btn>
+              </>
+            ) : (
+              <>
+                <Field label="אימייל" htmlFor={`${id}-forgot`}>
+                  <Input
+                    id={`${id}-forgot`}
+                    type="email"
+                    placeholder="name@example.com"
+                    autoComplete="email"
+                    value={form.email}
+                    onChange={set("email")}
+                  />
+                </Field>
+                {fail && <Alert tone="danger">{fail}</Alert>}
+                <Btn type="submit" size="lg" className="w-full" loading={busy}>
+                  שלח לי קישור
+                </Btn>
+              </>
+            )}
           </Panel>
         ) : (
           <Panel

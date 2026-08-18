@@ -1,11 +1,11 @@
-import { Component } from "react";
+import { Component, useState } from "react";
 import { useGuardian } from "./hooks/useGuardian.js";
 import AuthPage from "./components/AuthPage.jsx";
 import SupervisorApp from "./components/SupervisorApp.jsx";
 import GuardApp from "./components/GuardApp.jsx";
-import { LogoMark } from "./components/Logo.jsx";
+import { Logo, LogoMark } from "./components/Logo.jsx";
 import { Icon } from "./components/icons.jsx";
-import { Btn, Spinner } from "./components/ui.jsx";
+import { Alert, Btn, Field, Input, Spinner } from "./components/ui.jsx";
 
 /** Full-bleed centred layout shared by every pre-app screen. */
 const Curtain = ({ children }) => (
@@ -81,10 +81,158 @@ const BootScreen = ({ label = "טוען…" }) => (
   </Curtain>
 );
 
+/** Shared chrome for the two short forms that sit between auth and the app. */
+const MiniForm = ({ title, subtitle, onSubmit, error, busy, cta, children }) => (
+  <div className="app-canvas min-h-screen flex items-center justify-center p-4" dir="rtl">
+    <div className="w-full max-w-md animate-fade-up">
+      <div className="flex justify-center mb-8">
+        <Logo size={56} stacked />
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+        className="glass rounded-2xl p-6 space-y-4"
+      >
+        <div>
+          <h1 className="text-content font-bold text-xl">{title}</h1>
+          <p className="text-muted text-xs mt-1">{subtitle}</p>
+        </div>
+        {children}
+        {error && <Alert tone="danger">{error}</Alert>}
+        <Btn type="submit" size="lg" className="w-full" loading={busy}>
+          {cta}
+        </Btn>
+      </form>
+    </div>
+  </div>
+);
+
+/** Landed here from a recovery email. */
+function ResetPassword({ onSubmit, busy }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    if (password.length < 6) return setErr("הסיסמה חייבת להיות באורך 6 תווים לפחות");
+    if (password !== confirm) return setErr("הסיסמאות לא תואמות");
+    try {
+      await onSubmit(password);
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  return (
+    <MiniForm
+      title="בחר סיסמה חדשה"
+      subtitle="אחרי השמירה תיכנס אוטומטית"
+      onSubmit={submit}
+      error={err}
+      busy={busy}
+      cta="שמור סיסמה והתחבר"
+    >
+      <Field label="סיסמה חדשה" hint="לפחות 6 תווים">
+        <Input
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            setErr("");
+          }}
+        />
+      </Field>
+      <Field label="אימות סיסמה">
+        <Input
+          type="password"
+          autoComplete="new-password"
+          invalid={Boolean(confirm) && confirm !== password}
+          value={confirm}
+          onChange={(e) => {
+            setConfirm(e.target.value);
+            setErr("");
+          }}
+        />
+      </Field>
+    </MiniForm>
+  );
+}
+
+/**
+ * Authenticated, but with no team — an interrupted signup, or an account
+ * older than the current schema. This used to be a dead end that told the
+ * user to register again with an address that was already taken.
+ */
+function FinishSetup({ onSubmit, onCancel, busy }) {
+  const [fullName, setFullName] = useState("");
+  const [teamName, setTeamName] = useState("");
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    if (!fullName.trim()) return setErr("יש להזין שם מלא");
+    try {
+      await onSubmit({ fullName, teamName });
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  return (
+    <MiniForm
+      title="עוד צעד אחד"
+      subtitle="החשבון שלך מאומת, אבל עדיין אין לו צוות. בוא ניצור אחד."
+      onSubmit={submit}
+      error={err}
+      busy={busy}
+      cta="צור צוות וקבל קוד"
+    >
+      <Field label="שמך המלא">
+        <Input
+          placeholder="ישראל ישראלי"
+          autoComplete="name"
+          value={fullName}
+          onChange={(e) => {
+            setFullName(e.target.value);
+            setErr("");
+          }}
+        />
+      </Field>
+      <Field label="שם הצוות / האתר" hint="אופציונלי — למשל: מוקד תל אביב">
+        <Input
+          placeholder="הצוות שלי"
+          autoComplete="organization"
+          value={teamName}
+          onChange={(e) => setTeamName(e.target.value)}
+        />
+      </Field>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="w-full text-muted hover:text-content text-sm cursor-pointer transition-colors"
+      >
+        התנתק
+      </button>
+    </MiniForm>
+  );
+}
+
 function Shell() {
   const state = useGuardian();
 
   if (state.status === "booting") return <BootScreen />;
+
+  if (state.status === "recovery") {
+    return <ResetPassword onSubmit={state.setNewPassword} busy={state.busy} />;
+  }
+
+  if (state.status === "needs-team") {
+    return (
+      <FinishSetup onSubmit={state.completeSetup} onCancel={state.logout} busy={state.busy} />
+    );
+  }
 
   if (state.status === "error") {
     return (
@@ -106,6 +254,7 @@ function Shell() {
         onLogin={state.login}
         onJoin={state.joinTeam}
         onDemo={state.startGuestDemo}
+        onForgot={state.requestPasswordReset}
         busy={state.busy}
         error={state.error}
         clearError={state.clearError}

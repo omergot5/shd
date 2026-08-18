@@ -12,3 +12,5 @@ skills-lock.json
 # superseded by src/ — the whole app now lives under src/
 /GuardianShifts.jsx
 /supabase.js
+.vercel
+.env*

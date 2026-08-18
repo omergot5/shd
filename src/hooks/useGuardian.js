@@ -33,8 +33,17 @@ const EMPTY = {
   tasks: [],
 };
 
+/**
+ * True when this page load came from a password-recovery email. Read once at
+ * module load: supabase-js strips the fragment as soon as it exchanges the
+ * token, so by the time a component effect runs the evidence is gone.
+ */
+const AROSE_FROM_RECOVERY =
+  typeof window !== "undefined" && window.location.hash.includes("type=recovery");
+
 export function useGuardian() {
-  const [status, setStatus] = useState("booting"); // booting | anonymous | ready | error
+  // booting | anonymous | recovery | needs-team | ready | error
+  const [status, setStatus] = useState("booting");
   const [user, setUser] = useState(null); // the app profile, not the auth user
   const [data, setData] = useState(EMPTY);
   const [error, setError] = useState(null);
@@ -71,6 +80,13 @@ export function useGuardian() {
 
   const boot = useCallback(async () => {
     try {
+      // A recovery link carries a valid session, so this has to be checked
+      // before the profile lookup — otherwise the user is silently logged
+      // into their account instead of being asked for a new password.
+      if (AROSE_FROM_RECOVERY) {
+        if (mounted.current) setStatus("recovery");
+        return;
+      }
       const profile = await api.getMyProfile();
       if (!mounted.current) return;
       if (!profile) {
@@ -183,9 +199,51 @@ export function useGuardian() {
     (form) =>
       run(
         async () => {
-          const profile = await api.loginSupervisor(form);
-          await hydrate(profile);
-          return profile;
+          try {
+            const profile = await api.loginSupervisor(form);
+            await hydrate(profile);
+            return profile;
+          } catch (e) {
+            // Credentials were fine, there is just no team yet. Stay signed in
+            // and hand the caller a finish-setup step rather than logging the
+            // user straight back out.
+            if (e.code === "NO_TEAM" && mounted.current) setStatus("needs-team");
+            throw e;
+          }
+        },
+        { rethrow: true }
+      ),
+    [run, hydrate]
+  );
+
+  /** Second half of onboarding, for a session that authenticated with no team. */
+  const completeSetup = useCallback(
+    (form) =>
+      run(
+        async () => {
+          await api.createTeamForCurrentUser(form);
+          await hydrate(await api.getMyProfile());
+        },
+        { rethrow: true }
+      ),
+    [run, hydrate]
+  );
+
+  const requestPasswordReset = useCallback(
+    (email) => run(() => api.requestPasswordReset(email), { rethrow: true }),
+    [run]
+  );
+
+  const setNewPassword = useCallback(
+    (password) =>
+      run(
+        async () => {
+          await api.updatePassword(password);
+          // Drop the recovery fragment so a refresh does not reopen this screen.
+          window.history.replaceState(null, "", window.location.pathname);
+          const profile = await api.getMyProfile();
+          if (profile) await hydrate(profile);
+          else if (mounted.current) setStatus("needs-team");
         },
         { rethrow: true }
       ),
@@ -393,6 +451,9 @@ export function useGuardian() {
     ...data,
     register,
     login,
+    completeSetup,
+    requestPasswordReset,
+    setNewPassword,
     joinTeam,
     startGuestDemo,
     logout,
