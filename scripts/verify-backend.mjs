@@ -200,9 +200,20 @@ const { error: blankErr } = await guardSloppy.rpc("gs_join_team", { p_code: CODE
 check("a blank name is rejected rather than creating an unnamed guard",
   Boolean(blankErr) && /NAME_REQUIRED/.test(blankErr?.message || ""), blankErr?.message);
 
+// Adoption transfers the profile to the session that just claimed it, so the
+// superseded session must lose its write access. That is the whole point —
+// otherwise every stale anonymous session a guard ever had would keep the
+// ability to rewrite their availability.
+const { error: staleErr } = await guardA.from("gs_availability").upsert({
+  shift_id: shifts[1].id, guard_id: profA.profile_id, status: "available",
+});
+check("the superseded session loses write access to the adopted profile",
+  Boolean(staleErr), "stale session could still write");
+
 // ---------- 9. the "preferred" tier ----------
+// Written through guardSloppy: it is the session that now owns profA.
 console.log("\n=== preferences ===");
-const { error: prefErr } = await guardA.from("gs_availability").upsert({
+const { error: prefErr } = await guardSloppy.from("gs_availability").upsert({
   shift_id: shifts[1].id, guard_id: profA.profile_id, status: "preferred",
   comment: "מעדיף דווקא את זו",
 });
@@ -211,8 +222,9 @@ check("guard can record a preference", !prefErr, prefErr?.message);
 const { data: prefSeen } = await sup.from("gs_availability")
   .select("status, comment").eq("guard_id", profA.profile_id).eq("shift_id", shifts[1].id).maybeSingle();
 check("supervisor reads the preference back", prefSeen?.status === "preferred", prefSeen?.status);
+check("the preference comment survives", prefSeen?.comment === "מעדיף דווקא את זו", prefSeen?.comment);
 
-const { error: junkErr } = await guardA.from("gs_availability").upsert({
+const { error: junkErr } = await guardSloppy.from("gs_availability").upsert({
   shift_id: shifts[2].id, guard_id: profA.profile_id, status: "whatever",
 });
 check("an unknown status is still rejected by the constraint", Boolean(junkErr));
