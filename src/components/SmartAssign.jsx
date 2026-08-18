@@ -96,6 +96,11 @@ function RulesPanel({ rules, setRules, open, onClose }) {
       <div className="bg-surface-sunken rounded-xl px-4 py-1">
         {toggle("allowMaybe", 'לשבץ גם מי שסימן "אולי"', "אחרת רק מי שסימן זמין במפורש")}
         {toggle("allowUnknown", "לשבץ גם מי שלא הגיש זמינות", "שימושי כשחלק מהצוות לא מילא")}
+        {toggle(
+          "honourPreferences",
+          'להתחשב במי שסימן "מעדיף"',
+          "מכריע בין שני שומרים פנויים — לא גובר על הוגנות או על כלל קשיח"
+        )}
       </div>
     </Modal>
   );

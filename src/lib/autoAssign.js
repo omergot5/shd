@@ -24,6 +24,7 @@ export const DEFAULT_RULES = {
   maxNightsPerWeek: 3,
   allowMaybe: true, // may assign guards who answered "אולי"
   allowUnknown: true, // may assign guards who never submitted availability
+  honourPreferences: true, // weigh "מעדיף" above a plain "זמין"
   balancePasses: 40, // local-search iterations
 };
 
@@ -34,7 +35,20 @@ export const RULE_LABELS = {
   maxNightsPerWeek: "מקסימום לילות לשבוע",
   allowMaybe: 'לשבץ גם מי שסימן "אולי"',
   allowUnknown: "לשבץ גם מי שלא הגיש זמינות",
+  honourPreferences: 'להעדיף את מי שסימן "מעדיף"',
 };
+
+/**
+ * Availability is a ladder, not a switch. "I can work Sunday but I'd rather
+ * have Tuesday" used to be unsayable: marking Sunday unavailable closes the
+ * option, marking it available says nothing about the preference. "preferred"
+ * sits above "available" and is deliberately *soft* — it never blocks a shift
+ * and never overrides fairness, it only breaks the tie between two guards who
+ * are both free. A guard who marks everything preferred therefore gains
+ * nothing over one who marks everything available, which is the property that
+ * keeps the feature honest.
+ */
+export const AVAILABILITY_ORDER = ["preferred", "available", "maybe", "unknown", "unavailable"];
 
 const HOUR = 3600000;
 
@@ -196,10 +210,20 @@ function scoreCandidate({ guard, shift, load, availability, rules, stats, check 
   let score = 0;
 
   // 1. What the guard actually asked for.
+  //
+  // The rungs share one 40-point budget rather than stacking a bonus on top,
+  // so the match percentage keeps its existing meaning: 40 is still the most
+  // this dimension can pay out, and a shift full of willing guards still
+  // reads as a strong match rather than being marked down for the absence of
+  // an explicit preference.
   const status = check.status;
-  if (status === "available") {
+  const preferHonoured = status === "preferred" && rules.honourPreferences !== false;
+  if (preferHonoured) {
     score += 40;
-    parts.push({ label: "סימן/ה זמין/ה למשמרת", points: 40, kind: "availability" });
+    parts.push({ label: "ביקש/ה את המשמרת הזו במפורש", points: 40, kind: "availability" });
+  } else if (status === "available" || status === "preferred") {
+    score += 34;
+    parts.push({ label: "סימן/ה זמין/ה למשמרת", points: 34, kind: "availability" });
   } else if (status === "maybe") {
     score += 18;
     parts.push({ label: 'סימן/ה "אולי"', points: 18, kind: "availability" });
@@ -247,6 +271,21 @@ function scoreCandidate({ guard, shift, load, availability, rules, stats, check 
   } else {
     score += 10;
     parts.push({ label: "אין משמרת סמוכה — מנוחה מלאה", points: 10, kind: "rest" });
+  }
+
+  // 4b. Opportunity cost. A preference only works if the guard is still free
+  //     when their preferred shift comes up for filling — and shifts are
+  //     filled most-constrained-first, not in the order the guard would
+  //     choose. Without this, someone who asked for Tuesday gets handed
+  //     Sunday first simply because Sunday was processed earlier, and by
+  //     Tuesday they are at their cap. Holding back slightly on their
+  //     non-preferred shifts is what makes the request survive the ordering.
+  //
+  //     Deliberately smaller than the fairness weight: it nudges who takes
+  //     which shift, it never leaves a shift unfilled to honour a wish.
+  if (rules.honourPreferences !== false && status !== "preferred" && stats.hasPreference?.has(guard.id)) {
+    score -= 6;
+    parts.push({ label: "נשמר/ת למשמרת שביקש/ה במפורש", points: -6, kind: "preference" });
   }
 
   // 5. Don't stack two shifts on one calendar day if it can be avoided.
@@ -324,9 +363,19 @@ export function autoAssign({ shifts, guards, availability = {}, rules: ruleOverr
   const nightSlots = openShifts
     .filter((s) => s.type === "night")
     .reduce((n, s) => n + Math.max(1, s.requiredGuards || 1), 0);
+  // Who asked for something specific this week. Computed once over the whole
+  // set rather than per candidate, so the opportunity-cost rule above sees
+  // the guard's *other* wishes even while scoring an unrelated shift.
+  const hasPreference = new Set(
+    activeGuards
+      .filter((g) => openShifts.some((s) => availStatus(availability, g.id, s.id) === "preferred"))
+      .map((g) => g.id)
+  );
+
   const stats = {
     targetPerGuard: totalSlots / activeGuards.length,
     nightTargetPerGuard: nightSlots / activeGuards.length,
+    hasPreference,
   };
 
   // --- order shifts most-constrained-first ---

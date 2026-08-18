@@ -20,6 +20,7 @@ const SHIFT_TEMPLATES = [
  * a colour alone fails WCAG 1.4.1 and an icon alone is ambiguous.
  */
 const AVAIL = {
+  preferred:   { icon: "star",         label: "מעדיף",    tone: "brand",  cls: "text-brand" },
   available:   { icon: "check-circle", label: "זמין",     tone: "accent", cls: "text-accent" },
   unavailable: { icon: "x-circle",     label: "לא זמין",  tone: "danger", cls: "text-danger" },
   maybe:       { icon: "help",         label: "אולי",     tone: "warn",   cls: "text-warn" },
@@ -207,6 +208,8 @@ export function SupDashboard({ guards, shifts, swapRequests, tasks, team, onNavi
 export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [spreadFrom, setSpreadFrom] = useState(null); // date whose layout is being copied
+  const [spreadTo, setSpreadTo] = useState([]);
   const blank = {
     date: weekDates[0], startTime: "07:00", endTime: "19:00", label: "משמרת יום",
     location: "כניסה ראשית", requiredGuards: 1, type: "morning", color: "#3B82F6",
@@ -256,6 +259,48 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
     if (rows.length) await actions.addShifts(rows);
   };
 
+  /**
+   * Copy one day's layout onto other days. Building Sunday exactly right and
+   * then rebuilding it six more times by hand was the single most tedious
+   * thing in the app.
+   *
+   * Only the shift *definition* travels — times, label, location, headcount.
+   * Assignments deliberately do not: the same person on the same shift seven
+   * days running would break every rest rule the scheduler enforces.
+   */
+  const openSpread = (date) => {
+    setSpreadFrom(date);
+    setSpreadTo(weekDates.filter((d) => d !== date));
+  };
+
+  const spreadShifts = spreadFrom ? weekShifts.filter((s) => s.date === spreadFrom) : [];
+
+  const runSpread = async () => {
+    // A shift already occupying that slot wins; re-applying is a no-op rather
+    // than a way to end up with two identical 07:00 shifts.
+    const taken = new Set(weekShifts.map((s) => `${s.date}|${s.startTime}|${s.endTime}`));
+    const rows = [];
+    for (const date of spreadTo) {
+      for (const s of spreadShifts) {
+        const key = `${date}|${s.startTime}|${s.endTime}`;
+        if (taken.has(key)) continue;
+        taken.add(key);
+        rows.push({
+          date,
+          label: s.label,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          type: s.type,
+          color: s.color,
+          location: s.location,
+          requiredGuards: s.requiredGuards,
+        });
+      }
+    }
+    if (rows.length) await actions.addShifts(rows);
+    setSpreadFrom(null);
+  };
+
   const applyTemplate = (tpl) =>
     setForm((f) => ({
       ...f,
@@ -301,9 +346,19 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
               <div key={date}>
                 <div className={`text-center mb-2 pb-2 border-b-2 ${isToday ? "border-brand" : "border-hairline"}`}>
                   <p className={`text-[11px] ${isToday ? "text-brand font-bold" : "text-muted"}`}>{dayName(date)}</p>
-                  <p className={`text-sm font-bold ${isToday ? "text-brand" : "text-content"}`} data-numeric>
-                    {fromISODate(date).getDate()}
-                  </p>
+                  <div className="flex items-center justify-center gap-1">
+                    <p className={`text-sm font-bold ${isToday ? "text-brand" : "text-content"}`} data-numeric>
+                      {fromISODate(date).getDate()}
+                    </p>
+                    {day.length > 0 && (
+                      <IconBtn
+                        icon="copy"
+                        size="sm"
+                        label={`החל את משמרות ${dayName(date)} על שאר השבוע`}
+                        onClick={() => openSpread(date)}
+                      />
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   {day.map((s) => {
@@ -380,6 +435,93 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
           })}
         </div>
       )}
+
+      <Modal
+        open={Boolean(spreadFrom)}
+        onClose={() => setSpreadFrom(null)}
+        title={spreadFrom ? `החל את ${dayName(spreadFrom)} על שאר השבוע` : ""}
+        footer={
+          <>
+            <Btn
+              onClick={runSpread}
+              loading={busy}
+              disabled={!spreadTo.length}
+              icon="copy"
+              className="flex-1"
+            >
+              החל על {spreadTo.length} ימים
+            </Btn>
+            <Btn variant="secondary" onClick={() => setSpreadFrom(null)}>
+              ביטול
+            </Btn>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm font-medium text-content mb-2">
+              המשמרות שיועתקו ({spreadShifts.length})
+            </p>
+            <div className="space-y-1.5">
+              {spreadShifts.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center gap-2 text-xs bg-surface-sunken rounded-lg px-3 py-2"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                  <span className="font-medium text-content">{s.label}</span>
+                  <span className="text-muted" data-numeric>
+                    {s.startTime}–{s.endTime}
+                  </span>
+                  <span className="text-faint mr-auto" data-numeric>
+                    {s.requiredGuards} שומרים
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-medium text-content mb-2">לאילו ימים</p>
+            <div className="grid grid-cols-3 gap-2">
+              {weekDates
+                .filter((d) => d !== spreadFrom)
+                .map((d) => {
+                  const on = spreadTo.includes(d);
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      onClick={() =>
+                        setSpreadTo((prev) =>
+                          prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]
+                        )
+                      }
+                      className={`h-11 rounded-xl text-xs font-medium ring-1 ring-inset cursor-pointer
+                        transition-colors duration-200 flex flex-col items-center justify-center ${
+                          on
+                            ? "bg-brand text-on-brand ring-brand"
+                            : "bg-surface-sunken ring-hairline text-muted hover:text-content"
+                        }`}
+                    >
+                      <span>{dayName(d)}</span>
+                      <span className="text-[10px] opacity-80" data-numeric>
+                        {shortDate(d)}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+
+          <Alert tone="info">
+            יום שכבר יש בו משמרת באותן שעות יידלג — אפשר להריץ שוב בלי לייצר כפילויות.
+            השיבוצים עצמם לא מועתקים, רק הגדרת המשמרות.
+          </Alert>
+        </div>
+      </Modal>
 
       <Modal
         open={showForm}

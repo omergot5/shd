@@ -164,8 +164,58 @@ check("shifts are there on the new device", d2shifts?.length === 3, `saw ${d2shi
 // ---------- 8. returning guard keeps their identity ----------
 console.log("\n=== returning guard ===");
 const { data: rejoin } = await guardA.rpc("gs_join_team", { p_code: CODE, p_full_name: "גיא לוי" });
-check("re-joining returns the same profile",
+check("re-joining on the same session returns the same profile",
   (Array.isArray(rejoin) ? rejoin[0] : rejoin)?.profile_id === profA.profile_id);
+
+// The case that actually broke in production. A guard's session is anonymous:
+// clear browser data, switch phone, or let the token lapse, and
+// signInAnonymously() mints a brand-new auth uid. The old function looked the
+// person up by uid, found nothing, and inserted a second profile — so the
+// roster grew a duplicate on every single visit, splitting their assignments
+// and availability across copies.
+const guardAgain = fresh();
+await guardAgain.auth.signInAnonymously();
+const { data: readopt, error: readoptErr } = await guardAgain.rpc("gs_join_team", {
+  p_code: CODE, p_full_name: "גיא לוי",
+});
+check("re-joining from a NEW anonymous session adopts the existing profile",
+  (Array.isArray(readopt) ? readopt[0] : readopt)?.profile_id === profA.profile_id,
+  readoptErr?.message || `got ${(Array.isArray(readopt) ? readopt[0] : readopt)?.profile_id}`);
+
+const { data: rosterNow } = await sup.from("gs_profiles").select("id, full_name").eq("team_code", CODE);
+const guyCopies = (rosterNow || []).filter((p) => p.full_name === "גיא לוי").length;
+check("the roster still shows one גיא לוי, not two", guyCopies === 1, `${guyCopies} copies`);
+check("no phantom guards appeared at all", (rosterNow?.length || 0) === 3, `roster is ${rosterNow?.length}`);
+
+// Names differing only by surrounding whitespace or case are the same person.
+const guardSloppy = fresh();
+await guardSloppy.auth.signInAnonymously();
+const { data: sloppy } = await guardSloppy.rpc("gs_join_team", {
+  p_code: CODE, p_full_name: "  גיא לוי  ",
+});
+check("whitespace around the name does not create a duplicate",
+  (Array.isArray(sloppy) ? sloppy[0] : sloppy)?.profile_id === profA.profile_id);
+
+const { error: blankErr } = await guardSloppy.rpc("gs_join_team", { p_code: CODE, p_full_name: "   " });
+check("a blank name is rejected rather than creating an unnamed guard",
+  Boolean(blankErr) && /NAME_REQUIRED/.test(blankErr?.message || ""), blankErr?.message);
+
+// ---------- 9. the "preferred" tier ----------
+console.log("\n=== preferences ===");
+const { error: prefErr } = await guardA.from("gs_availability").upsert({
+  shift_id: shifts[1].id, guard_id: profA.profile_id, status: "preferred",
+  comment: "מעדיף דווקא את זו",
+});
+check("guard can record a preference", !prefErr, prefErr?.message);
+
+const { data: prefSeen } = await sup.from("gs_availability")
+  .select("status, comment").eq("guard_id", profA.profile_id).eq("shift_id", shifts[1].id).maybeSingle();
+check("supervisor reads the preference back", prefSeen?.status === "preferred", prefSeen?.status);
+
+const { error: junkErr } = await guardA.from("gs_availability").upsert({
+  shift_id: shifts[2].id, guard_id: profA.profile_id, status: "whatever",
+});
+check("an unknown status is still rejected by the constraint", Boolean(junkErr));
 
 // ---------- cleanup ----------
 await sup.from("gs_teams").delete().eq("code", CODE);

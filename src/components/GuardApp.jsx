@@ -18,10 +18,13 @@ const NAV = [
 
 /** Availability as icon + word + colour — never colour alone. */
 const AVAIL = {
+  preferred:   { icon: "star",         label: "מעדיף",   short: "מעדיף", tone: "brand" },
   available:   { icon: "check-circle", label: "זמין",    short: "זמין",  tone: "accent" },
   maybe:       { icon: "help",         label: "אולי",    short: "אולי",  tone: "warn" },
   unavailable: { icon: "x-circle",     label: "לא זמין", short: "לא",    tone: "danger" },
 };
+
+const AVAIL_CHOICES = ["preferred", "available", "maybe", "unavailable"];
 
 const SWAP_STATUS = {
   pending:  { label: "ממתין", tone: "warn" },
@@ -305,6 +308,16 @@ function MyAvailability({ user, shifts, availability, actions, busy }) {
                 </div>
               )}
             </div>
+            {/* Without this, "מעדיף" reads as a stronger "זמין" and everyone
+                picks it. Saying out loud that it costs nothing and grants no
+                guarantee is what keeps the signal meaningful. */}
+            <p className="text-xs text-muted mt-3 pt-3 border-t border-hairline flex items-start gap-2">
+              <Icon name="star" size={13} className="text-brand mt-0.5 shrink-0" />
+              <span>
+                <b className="text-content">מעדיף</b> = אני פנוי, ואם אפשר הייתי שמח דווקא למשמרת הזו.
+                זה לא סוגר לך שום אופציה ולא מבטיח שיבוץ — זה רק מכריע בין שני שומרים שממילא פנויים.
+              </span>
+            </p>
           </Card>
 
           <div className="space-y-6">
@@ -351,14 +364,17 @@ function MyAvailability({ user, shifts, availability, actions, busy }) {
                           </div>
 
                           <div
-                            className="grid grid-cols-3 gap-2"
+                            className="grid grid-cols-2 sm:grid-cols-4 gap-2"
                             role="radiogroup"
                             aria-label={`זמינות ל${s.label} ב${formatDateHe(s.date)}`}
                           >
-                            {["available", "maybe", "unavailable"].map((val) => {
+                            {AVAIL_CHOICES.map((val) => {
                               const m = AVAIL[val];
                               const on = status === val;
                               const toneCls = {
+                                preferred: on
+                                  ? "bg-brand text-on-brand ring-brand"
+                                  : "text-brand ring-brand/25 hover:bg-brand/10",
                                 available: on
                                   ? "bg-accent text-on-accent ring-accent"
                                   : "text-accent ring-accent/25 hover:bg-accent/10",
