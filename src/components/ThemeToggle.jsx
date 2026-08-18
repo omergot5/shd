@@ -1,17 +1,19 @@
 import { setThemeMode, useTheme } from "../hooks/useTheme.js";
 import { Icon } from "./icons.jsx";
 
-// Three buttons rather than one switch, because the underlying model has
-// three states. A two-state switch would have to lie about "follow system",
-// and a user who picks dark at noon expects it to still be dark at midnight.
+// Light and dark only. "Follow system" is still the default the app boots
+// with — it just isn't a button, because as a third control it read as a
+// settings affordance that appeared to do nothing (its result is identical
+// to whichever of the other two the OS already resolves to). Selection is
+// therefore keyed off `resolved`, so a user still on system sees the
+// theme they are actually looking at marked as active.
 const OPTIONS = [
-  { mode: "system", icon: "sliders", label: "לפי המערכת" },
   { mode: "light", icon: "sun", label: "מצב בהיר" },
   { mode: "dark", icon: "moon", label: "מצב כהה" },
 ];
 
 export default function ThemeToggle({ className = "" }) {
-  const { mode } = useTheme();
+  const { resolved } = useTheme();
 
   return (
     <div
@@ -20,7 +22,7 @@ export default function ThemeToggle({ className = "" }) {
       className={`inline-flex items-center gap-0.5 rounded-xl bg-surface-sunken ring-1 ring-inset ring-hairline p-1 ${className}`}
     >
       {OPTIONS.map((opt) => {
-        const active = mode === opt.mode;
+        const active = resolved === opt.mode;
         return (
           <button
             key={opt.mode}
