@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { SHIFT_TONES } from "../../design/shiftPalette.js";
 import {
   Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -10,9 +11,9 @@ import { shiftHours } from "../../lib/dates.js";
 // bundle, and reports are never the first screen a supervisor opens.
 
 const SHIFT_TYPES = [
-  { type: "morning", label: "בוקר/יום", color: "#F59E0B" },
-  { type: "afternoon", label: "צהריים", color: "#3B82F6" },
-  { type: "night", label: "לילה", color: "#6366F1" },
+  { type: "morning", label: "בוקר/יום", color: SHIFT_TONES.morning },
+  { type: "afternoon", label: "צהריים", color: SHIFT_TONES.afternoon },
+  { type: "night", label: "לילה", color: SHIFT_TONES.night },
 ];
 
 const TYPE_LABEL = Object.fromEntries(SHIFT_TYPES.map((t) => [t.type, t.label]));
@@ -94,9 +95,9 @@ export default function AnalyticsDash({ guards, shifts }) {
                 cursor={{ fill: grid }}
                 formatter={(v, n) => [v, TYPE_LABEL[n] || n]}
               />
-              <Bar dataKey="morning" stackId="a" fill="#F59E0B" />
-              <Bar dataKey="afternoon" stackId="a" fill="#3B82F6" />
-              <Bar dataKey="night" stackId="a" fill="#6366F1" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="morning" stackId="a" fill={SHIFT_TONES.morning} />
+              <Bar dataKey="afternoon" stackId="a" fill={SHIFT_TONES.afternoon} />
+              <Bar dataKey="night" stackId="a" fill={SHIFT_TONES.night} radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
           {/* An explicit legend: the stacked bars are distinguished only by

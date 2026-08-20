@@ -20,7 +20,9 @@ import { useSyncExternalStore } from "react";
 export const STORAGE_KEY = "gs-theme";
 const MODES = ["system", "light", "dark"];
 
-const lightMedia = () => window.matchMedia("(prefers-color-scheme: light)");
+// NexRota is cream-first: tokens.css defines light on bare `:root`, so the
+// only thing the OS can tell us that matters is "this user wants dark".
+const darkMedia = () => window.matchMedia("(prefers-color-scheme: dark)");
 
 function readStored() {
   try {
@@ -44,10 +46,10 @@ const listeners = new Set();
 
 // The snapshot must be referentially stable between changes or
 // useSyncExternalStore will loop forever, so it is cached, not rebuilt.
-let snapshot = { mode, resolved: "dark" };
+let snapshot = { mode, resolved: "light" };
 
 function recompute() {
-  const resolved = mode === "system" ? (lightMedia().matches ? "light" : "dark") : mode;
+  const resolved = mode === "system" ? (darkMedia().matches ? "dark" : "light") : mode;
   if (snapshot.mode === mode && snapshot.resolved === resolved) return;
   snapshot = { mode, resolved };
   listeners.forEach((fn) => fn());
@@ -58,7 +60,7 @@ if (typeof window !== "undefined") {
   recompute();
   // Only "system" cares about OS changes, but subscribing once at module
   // load is simpler than attaching and detaching as the mode changes.
-  lightMedia().addEventListener("change", recompute);
+  darkMedia().addEventListener("change", recompute);
 }
 
 export function setThemeMode(next) {
@@ -74,7 +76,7 @@ export function setThemeMode(next) {
 
   // Keep the browser chrome (iOS status bar, Android address bar) in step.
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", snapshot.resolved === "light" ? "#eef2f7" : "#0b1220");
+  if (meta) meta.setAttribute("content", snapshot.resolved === "dark" ? "#0c211e" : "#f6f4e8");
 }
 
 const subscribe = (fn) => {

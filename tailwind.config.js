@@ -31,6 +31,10 @@ export default {
         "brand-strong": channel("brand-strong"),
         "on-brand": channel("on-brand"),
 
+        // קישוט בלבד — הטורקיז והמנטה של הלוגו. לא נושאים טקסט.
+        "brand-soft": channel("brand-soft"),
+        mint: channel("mint"),
+
         accent: channel("accent"),
         "accent-strong": channel("accent-strong"),
         "on-accent": channel("on-accent"),
@@ -82,11 +86,31 @@ export default {
           "0%": { transform: "translateX(-120%)" },
           "100%": { transform: "translateX(220%)" },
         },
+        // The undo window, drawn as it drains. RTL: it empties toward the left.
+        drain: {
+          from: { transform: "scaleX(1)" },
+          to: { transform: "scaleX(0)" },
+        },
+        // תא בסידור החי במסך הכניסה: נכנס, נשאר, ומתפוגג לקראת סוף המחזור.
+        "slot-in": {
+          "0%": { opacity: "0", transform: "translateY(4px) scale(0.9)" },
+          "6%": { opacity: "1", transform: "none" },
+          "82%": { opacity: "1", transform: "none" },
+          "94%, 100%": { opacity: "0", transform: "translateY(-3px) scale(0.96)" },
+        },
+        // הילה נושמת מאחורי הלוגו. איטית מספיק כדי לא לתפוס תשומת לב.
+        breathe: {
+          "0%, 100%": { opacity: "0.35", transform: "scale(1)" },
+          "50%": { opacity: "0.6", transform: "scale(1.08)" },
+        },
       },
       animation: {
         "fade-up": "fade-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both",
         "scale-in": "scale-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both",
         sheen: "sheen 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+        drain: "drain 8s linear forwards",
+        "slot-in": "slot-in 7s cubic-bezier(0.22, 1, 0.36, 1) infinite both",
+        breathe: "breathe 6s ease-in-out infinite",
       },
     },
   },

@@ -13,9 +13,20 @@ import { Icon } from "./icons.jsx";
  * Per-guard identity colour
  * ------------------------------------------------------------------ */
 
+/**
+ * צבע הזהות של אדם.
+ *
+ * כאן, בניגוד למשמרות, **צריך** גיוון: עשרה אנשים חייבים להיות נבדלים
+ * זה מזה במבט. הסט הקודם היה סט ברירת המחדל של Tailwind — ליים, ורוד,
+ * כתום — והוא צרם על קרם.
+ *
+ * הסט הזה שומר על עשר משפחות גוון נפרדות אבל בהרוויה נמוכה יותר
+ * ובבהירות אחידה, כך שאף שבב לא קופץ מעל האחרים, וכולם יושבים באותו
+ * עולם עם הטורקיז. הראשון בסבב הוא הטורקיז של המותג עצמו.
+ */
 const GUARD_COLORS = [
-  "#3B82F6", "#06B6D4", "#10B981", "#7C3AED", "#F43F5E",
-  "#F97316", "#84CC16", "#EC4899", "#4F46E5", "#F59E0B",
+  "#4C9585", "#3E7C9B", "#7A6FA8", "#A85F7A", "#B0763C",
+  "#5E8C5A", "#9A6250", "#4F7FA8", "#8A6B9E", "#2F7A6B",
 ];
 
 /** Stable colour per guard, so the same person looks the same everywhere. */
@@ -43,7 +54,9 @@ const luminance = (hex) => {
   );
 };
 
-const INK_DARK = "#0B1220";
+// דיו כהה — הטלה של הלוגו, לא שחור־כחלחל. על שבב טורקיז בהיר ההבדל
+// בין השניים הוא ההבדל בין "שייך למותג" ל"נשאר משהו מהעיצוב הקודם".
+const INK_DARK = "#1C3B37";
 const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 
 /**
@@ -296,23 +309,127 @@ export const Meter = ({ value, max = 100, color = "rgb(var(--brand))", height = 
   );
 };
 
-export const EmptyState = ({ icon = "inbox", title, body, action }) => (
+/**
+ * מצב ריק שהוא *התחלה*, לא הודעת שגיאה.
+ *
+ * `choices` הוא העיקר: במקום להגיד למשתמש "אין נתונים" ולהשאיר אותו לבד,
+ * המסך מציע לו שתיים-שלוש דרכים מוכנות להתחיל, ולידן תמיד גם את הדרך
+ * הידנית. משתמש שאף פעם לא ראה את המוצר לא צריך להחליט מה זו "תבנית" —
+ * הוא בוחר את מה שמתאר את השבוע שלו.
+ */
+export const EmptyState = ({ icon = "inbox", title, body, action, choices }) => (
   <Card className="text-center py-12">
     <div className="w-14 h-14 rounded-2xl bg-surface-sunken ring-1 ring-inset ring-hairline text-muted mx-auto mb-4 flex items-center justify-center">
       <Icon name={icon} size={26} />
     </div>
     <h3 className="font-bold text-content mb-1">{title}</h3>
     {body && <p className="text-sm text-muted max-w-sm mx-auto mb-4">{body}</p>}
+    {choices?.length > 0 && (
+      <div className="grid gap-2 sm:grid-cols-3 max-w-2xl mx-auto text-right mb-4">
+        {choices.map((c) => (
+          <button
+            key={c.label}
+            onClick={c.onClick}
+            disabled={c.disabled}
+            className="rounded-xl bg-surface-sunken ring-1 ring-inset ring-hairline p-3.5 cursor-pointer
+              transition-[background,box-shadow] duration-200 hover:bg-surface-hover hover:ring-brand/40
+              disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span className="flex items-center gap-2 text-sm font-bold text-content">
+              {c.icon && <Icon name={c.icon} size={15} className="text-brand" />}
+              {c.label}
+            </span>
+            {c.hint && <span className="block text-[11px] text-muted mt-1 leading-snug">{c.hint}</span>}
+          </button>
+        ))}
+      </div>
+    )}
     {action}
   </Card>
 );
 
+/**
+ * הפעולה הראשית של המסך. אחת בלבד, בתחתית, נדבקת לתחתית הגלילה.
+ *
+ * שלושה כללים שהיא אוכפת, וזו כל הסיבה שהיא רכיב ולא עוד `<Btn>`:
+ * אחת למסך — אם צריך שתיים, המסך עושה יותר מדי; בתחתית — שם האגודל,
+ * ושם העין מגיעה אחרי שקראה את התוכן; ובגוף ראשון — "סדר לי את השבוע",
+ * לא "הרצת שיבוץ". `hint` אומר מה יקרה, כדי שהכפתור לא יצטרך.
+ */
+export const PrimaryAction = ({
+  children, onClick, icon, hint, loading = false, disabled = false, variant = "primary",
+}) => (
+  <div className="sticky bottom-0 z-20 pt-5">
+    <div className="glass-raised rounded-2xl p-2.5 flex flex-col sm:flex-row sm:items-center gap-2">
+      {hint && (
+        <p className="text-xs text-muted px-2 flex-1 min-w-0 leading-snug text-center sm:text-right">
+          {hint}
+        </p>
+      )}
+      <Btn
+        size="lg"
+        variant={variant}
+        icon={icon}
+        onClick={onClick}
+        loading={loading}
+        disabled={disabled}
+        className={hint ? "w-full sm:w-auto sm:min-w-[15rem]" : "w-full"}
+      >
+        {children}
+      </Btn>
+    </div>
+  </div>
+);
+
+/**
+ * רצועת הביטול — התשובה של המוצר הזה ל"האם אתה בטוח?".
+ *
+ * חלונית אישור עוצרת את המשתמש *לפני* כל פעולה, כולל אלף הפעמים שבהן הוא
+ * צדק, וכך היא מאבדת את המשמעות שלה בדיוק בפעם שבה הוא טעה. הרצועה הזאת
+ * הפוכה: הפעולה קורית, המסך מתעדכן, ושמונה שניות אחר כך היא נסגרת. הפס
+ * הדק מתרוקן כדי שהזמן שנשאר ייראה ולא ינוחש.
+ */
+export const UndoBar = ({ label, onUndo }) => {
+  if (!label) return null;
+  return (
+    <div className="fixed bottom-4 inset-x-0 z-[60] flex justify-center px-4 pointer-events-none">
+      <div
+        role="status"
+        className="pointer-events-auto glass-raised rounded-2xl overflow-hidden
+          shadow-lg animate-fade-up min-w-[17rem] max-w-[calc(100vw-2rem)]"
+      >
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          <span className="text-sm font-semibold text-content truncate">{label}</span>
+          <button
+            onClick={onUndo}
+            className="mr-auto flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-bold
+              text-brand bg-brand/10 hover:bg-brand/20 cursor-pointer transition-colors flex-shrink-0"
+          >
+            <Icon name="undo" size={15} />
+            ביטול
+          </button>
+        </div>
+        <div className="h-[3px] bg-brand/15">
+          <div className="h-full bg-brand origin-right animate-drain motion-reduce:hidden" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * כותרת מסך. `title` אופציונלי בכוונה: כשהמסך יושב בתוך זרימת "השבוע",
+ * פס השלבים כבר אומר איפה אנחנו, וכותרת שנייה שחוזרת על אותן מילים היא
+ * רעש — לא היררכיה. בלי כותרת נשארים הכיתוב המשני והפעולות בלבד.
+ */
 export const PageHeader = ({ title, subtitle, actions }) => (
   <div className="flex items-start justify-between gap-4 flex-wrap">
-    <div>
-      <h1 className="text-2xl font-bold text-content tracking-tight">{title}</h1>
-      {subtitle && <p className="text-muted text-sm mt-1">{subtitle}</p>}
-    </div>
+    {(title || subtitle) && (
+      <div>
+        {title && <h1 className="text-2xl font-bold text-content tracking-tight">{title}</h1>}
+        {subtitle && <p className={`text-muted text-sm ${title ? "mt-1" : ""}`}>{subtitle}</p>}
+      </div>
+    )}
     {actions && <div className="flex gap-2 flex-wrap">{actions}</div>}
   </div>
 );

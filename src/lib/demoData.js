@@ -8,6 +8,7 @@
 // ============================================================
 
 import { supabase } from "./supabaseClient.js";
+import { SHIFT_TONES } from "../design/shiftPalette.js";
 import { weekByOffset } from "./dates.js";
 import { shiftFromRow } from "./api.js";
 
@@ -20,8 +21,8 @@ const DEMO_GUARDS = [
   { name: "נועה ברק", phone: "053-6789012" },
 ];
 
-const DAY = { label: "משמרת יום", startTime: "07:00", endTime: "19:00", type: "morning", color: "#3B82F6" };
-const NIGHT = { label: "משמרת לילה", startTime: "19:00", endTime: "07:00", type: "night", color: "#6366F1" };
+const DAY = { label: "משמרת יום", startTime: "07:00", endTime: "19:00", type: "morning", color: SHIFT_TONES.morning };
+const NIGHT = { label: "משמרת לילה", startTime: "19:00", endTime: "07:00", type: "night", color: SHIFT_TONES.night };
 
 /**
  * Availability pattern, indexed by guard order and day index.

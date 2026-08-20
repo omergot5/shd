@@ -1,145 +1,168 @@
 /* ============================================================
- * Design tokens — "Vault": deep navy glass, emerald accents.
+ * Design tokens — NexRota.
  *
- * Every colour in the app resolves through one of these variables.
- * Components never name a colour ("blue-600"), they name a role
- * ("brand"), which is what makes the light/dark swap a 30-line file
- * instead of a find-and-replace across 3,000 lines of JSX.
+ * הפלטה נגזרת מהלוגו: קרם חמים כרקע, טלה עמוק כטקסט, ושני גוונים
+ * של טורקיז — בינוני לפעולות, מנטה להדגשות. הלוגו הוא cream-first,
+ * ולכן **הבהיר הוא ברירת המחדל** והכהה הוא הווריאציה — הפוך ממה
+ * שהיה כאן קודם.
  *
- * Solid colours are stored as space-separated RGB channels so Tailwind's
- * `rgb(var(--x) / <alpha-value>)` syntax works and `bg-brand/20` still
- * does what you'd expect. Glass surfaces are stored as finished rgba()
- * because their alpha *is* the design — it must not be overridden.
+ * כל צבע באפליקציה עובר דרך אחד המשתנים האלה. רכיב לעולם לא נוקב
+ * בשם של צבע ("blue-600"), אלא בשם של תפקיד ("brand") — וזה מה
+ * שהופך החלפת מיתוג שלמה לקובץ אחד במקום find-and-replace על
+ * 3,000 שורות JSX.
+ *
+ * צבעים אטומים נשמרים כערוצי RGB מופרדים ברווח כדי ש-
+ * `rgb(var(--x) / <alpha-value>)` של Tailwind יעבוד ו-`bg-brand/20`
+ * יעשה את מה שמצפים. משטחי זכוכית נשמרים כ-rgba() מוגמר, כי ה-alpha
+ * שלהם *הוא* העיצוב ואסור שיידרס.
+ *
+ * ⚠️ ניגודיות: הטורקיז של הלוגו (#4C9585) הוא 3.5:1 מול לבן — יפה,
+ * אבל לא עומד ב-AA לטקסט. לכן הוא חי כאן כ-`--brand-soft` לקישוט
+ * ולגרדיאנטים בלבד, ותפקיד ה-`--brand` הנושא טקסט הוא גוון כהה יותר
+ * מאותה משפחה. אותה משפחת צבע, הבדל שהעין בקושי קולטת, וטקסט קריא.
  * ============================================================ */
 
 :root {
   /* -- surfaces ------------------------------------------------ */
-  --bg: 11 18 32; /* #0B1220 — vault navy */
-  --bg-deep: 6 11 22; /* behind the glow layer */
+  --bg: 246 244 232; /* #F6F4E8 — הקרם של הלוגו */
+  --bg-deep: 239 236 221; /* מתחת לשכבת הזוהר */
 
-  /* Glass needs something to refract. These two radial glows sit
-   * behind every panel; without them frosted glass reads as flat grey. */
-  --glow-brand: rgba(59, 130, 246, 0.16);
-  --glow-accent: rgba(16, 185, 129, 0.1);
+  /* לזכוכית צריך משהו לשבור. שתי ההילות האלה יושבות מאחורי כל פאנל;
+   * בלעדיהן זכוכית מט נקראת כמלבן אפור שטוח. */
+  --glow-brand: rgba(76, 149, 133, 0.18);
+  --glow-accent: rgba(128, 198, 181, 0.22);
 
-  --surface: rgba(255, 255, 255, 0.045);
-  --surface-hover: rgba(255, 255, 255, 0.075);
-  --surface-raised: rgba(19, 28, 45, 0.82); /* modals, sidebar — needs opacity to stay legible */
-  --surface-sunken: rgba(0, 0, 0, 0.22);
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-hover: rgba(255, 255, 255, 0.95);
+  --surface-raised: rgba(255, 255, 255, 0.97);
+  --surface-sunken: rgba(28, 59, 55, 0.05);
 
-  --hairline: rgba(255, 255, 255, 0.09);
-  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --hairline: rgba(28, 59, 55, 0.11);
+  --hairline-strong: rgba(28, 59, 55, 0.2);
 
   /* -- text ---------------------------------------------------- */
-  --text: 241 245 249; /* #F1F5F9 — 16.6:1 on --bg */
-  --text-muted: 148 163 184; /* #94A3B8 —  7.0:1 on --bg */
-  --text-faint: 124 138 163; /* #7C8AA3 —  5.3:1 */
+  --text: 28 59 55; /* #1C3B37 — 11.0:1 על הקרם */
+  --text-muted: 74 106 100; /* #4A6A64 —  5.4:1 */
+  --text-faint: 86 115 108; /* #56736C —  4.7:1 */
 
   /* -- brand --------------------------------------------------- */
-  --brand: 59 130 246; /* #3B82F6 — 4.9:1 on --bg */
-  --brand-strong: 96 165 250;
+  --brand: 46 115 101; /* #2E7365 — 4.7:1 על הקרם, 5.6:1 על לבן */
+  --brand-strong: 30 91 80; /* #1E5B50 — 7.9:1 */
   --on-brand: 255 255 255;
 
-  --accent: 16 185 129; /* #10B981 — 7.4:1 on --bg */
-  --accent-strong: 52 211 153;
-  --on-accent: 4 20 15;
+  /* הטורקיז מהלוגו, לקישוט בלבד: גרדיאנטים, הילות, מילויי צ'יפים.
+   * לעולם לא מתחת לטקסט. */
+  --brand-soft: 76 149 133; /* #4C9585 */
+  --mint: 128 198 181; /* #80C6B5 */
+
+  --accent: 33 116 95; /* #21745F — 5.1:1, ירקרק יותר מ---brand */
+  --accent-strong: 22 92 75;
+  --on-accent: 255 255 255;
 
   /* -- status -------------------------------------------------- */
-  --warn: 245 158 11;
-  --danger: 244 63 94;
-  --info: 56 189 248;
+  /* מכוילים מחדש לקרם: אדום חם במקום מג'נטה, שלא יילחם בטורקיז. */
+  --warn: 158 88 6; /* 5.1:1 */
+  --danger: 176 42 33; /* 5.9:1 */
+  --info: 28 110 140; /* 5.2:1 */
 
   /* -- shape & depth ------------------------------------------- */
   --blur: 16px;
   --blur-strong: 26px;
-  --ring: 59 130 246;
+  --ring: 46 115 101;
 
-  /* The inset top highlight is what sells "pane of glass" rather than
-   * "translucent div" — it fakes a light source above the surface. */
-  --shadow-glass: 0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
-    0 8px 24px -12px rgba(0, 0, 0, 0.55);
-  --shadow-raised: 0 1px 0 0 rgba(255, 255, 255, 0.07) inset,
-    0 24px 60px -20px rgba(0, 0, 0, 0.75);
-
-  color-scheme: dark;
-}
-
-/* ------------------------------------------------------------ *
- * Light theme.
- *
- * Glass over a light ground is a different physical model: the panel
- * is now *brighter* than what's behind it, so the alpha goes up, the
- * highlight moves from white to shadow, and the brand colours darken
- * to hold 4.5:1 against near-white.
- * ------------------------------------------------------------ */
-:root[data-theme="light"] {
-  --bg: 238 242 247; /* #EEF2F7 */
-  --bg-deep: 226 232 240;
-
-  --glow-brand: rgba(59, 130, 246, 0.18);
-  --glow-accent: rgba(16, 185, 129, 0.14);
-
-  --surface: rgba(255, 255, 255, 0.72);
-  --surface-hover: rgba(255, 255, 255, 0.92);
-  --surface-raised: rgba(255, 255, 255, 0.96);
-  --surface-sunken: rgba(15, 23, 42, 0.04);
-
-  --hairline: rgba(15, 23, 42, 0.09);
-  --hairline-strong: rgba(15, 23, 42, 0.16);
-
-  --text: 15 23 42; /* #0F172A — 15.9:1 on --bg */
-  --text-muted: 71 85 105; /* #475569 —  6.8:1 */
-  --text-faint: 92 105 126; /* #5C697E —  4.9:1 */
-
-  --brand: 37 99 235; /* #2563EB — 5.2:1 on white */
-  --brand-strong: 29 78 216;
-  --on-brand: 255 255 255;
-
-  --accent: 4 120 87; /* #047857 — 5.6:1 on white (emerald-600 is only 3.4) */
-  --accent-strong: 6 95 70;
-  --on-accent: 255 255 255;
-
-  --warn: 161 74 8; /* 5.4:1 */
-  --danger: 190 24 93; /* 5.3:1 */
-  --info: 3 105 161; /* 5.3:1 */
-
+  /* על רקע בהיר הפאנל *בהיר* ממה שמאחוריו, ולכן ההדגשה הפנימית היא
+   * לבנה מלמעלה והצל נופל בגוון של הטקסט — לא שחור נייטרלי, שהיה
+   * מלכלך את הקרם לאפור. */
   --shadow-glass: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
-    0 8px 24px -14px rgba(15, 23, 42, 0.28);
+    0 8px 24px -14px rgba(28, 59, 55, 0.26);
   --shadow-raised: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
-    0 24px 60px -22px rgba(15, 23, 42, 0.35);
+    0 24px 60px -22px rgba(28, 59, 55, 0.32);
 
   color-scheme: light;
 }
 
-/* Someone who has never touched the toggle gets their OS preference.
- * Once they choose, `data-theme` is stamped on <html> and wins over this. */
-@media (prefers-color-scheme: light) {
+/* ------------------------------------------------------------ *
+ * ערכת כהה — "יער".
+ *
+ * לא היפוך של הבהיר: הקרם לא הופך לשחור אלא לירוק־טלה עמוק, אותו
+ * גוון שנמצא בצד הכהה של סרט הלוגו. הטורקיז והמנטה מחליפים תפקידים —
+ * מה שהיה כהה מדי לטקסט על קרם הוא בדיוק מה שקריא כאן.
+ * ------------------------------------------------------------ */
+:root[data-theme="dark"] {
+  --bg: 12 33 30; /* #0C211E */
+  --bg-deep: 8 24 22;
+
+  --glow-brand: rgba(76, 149, 133, 0.2);
+  --glow-accent: rgba(128, 198, 181, 0.12);
+
+  --surface: rgba(224, 245, 238, 0.05);
+  --surface-hover: rgba(224, 245, 238, 0.09);
+  --surface-raised: rgba(19, 45, 41, 0.88);
+  --surface-sunken: rgba(0, 0, 0, 0.24);
+
+  --hairline: rgba(174, 222, 210, 0.13);
+  --hairline-strong: rgba(174, 222, 210, 0.24);
+
+  --text: 239 238 226; /* #EFEEE2 — הקרם, הפוך */
+  --text-muted: 160 190 182; /* #A0BEB6 —  7.6:1 */
+  --text-faint: 126 158 150; /* #7E9E96 —  5.2:1 */
+
+  --brand: 111 191 173; /* #6FBFAD — 8.4:1 */
+  --brand-strong: 143 214 197;
+  --on-brand: 8 32 28;
+
+  --brand-soft: 76 149 133;
+  --mint: 128 198 181;
+
+  --accent: 128 198 181; /* #80C6B5 — המנטה של הלוגו, במלוא כוחה */
+  --accent-strong: 168 224 209;
+  --on-accent: 8 32 28;
+
+  --warn: 245 176 65;
+  --danger: 244 122 110;
+  --info: 106 194 224;
+
+  --ring: 111 191 173;
+
+  --shadow-glass: 0 1px 0 0 rgba(224, 245, 238, 0.06) inset,
+    0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --shadow-raised: 0 1px 0 0 rgba(224, 245, 238, 0.08) inset,
+    0 24px 60px -20px rgba(0, 0, 0, 0.8);
+
+  color-scheme: dark;
+}
+
+/* מי שמעולם לא נגע במתג מקבל את העדפת מערכת ההפעלה שלו.
+ * ברגע שבחר, `data-theme` מוטבע על <html> ומנצח את זה. */
+@media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: 238 242 247;
-    --bg-deep: 226 232 240;
-    --glow-brand: rgba(59, 130, 246, 0.18);
-    --glow-accent: rgba(16, 185, 129, 0.14);
-    --surface: rgba(255, 255, 255, 0.72);
-    --surface-hover: rgba(255, 255, 255, 0.92);
-    --surface-raised: rgba(255, 255, 255, 0.96);
-    --surface-sunken: rgba(15, 23, 42, 0.04);
-    --hairline: rgba(15, 23, 42, 0.09);
-    --hairline-strong: rgba(15, 23, 42, 0.16);
-    --text: 15 23 42;
-    --text-muted: 71 85 105;
-    --text-faint: 92 105 126;
-    --brand: 37 99 235;
-    --brand-strong: 29 78 216;
-    --accent: 4 120 87;
-    --accent-strong: 6 95 70;
-    --on-accent: 255 255 255;
-    --warn: 161 74 8;
-    --danger: 190 24 93;
-    --info: 3 105 161;
-    --shadow-glass: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
-      0 8px 24px -14px rgba(15, 23, 42, 0.28);
-    --shadow-raised: 0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
-      0 24px 60px -22px rgba(15, 23, 42, 0.35);
-    color-scheme: light;
+    --bg: 12 33 30;
+    --bg-deep: 8 24 22;
+    --glow-brand: rgba(76, 149, 133, 0.2);
+    --glow-accent: rgba(128, 198, 181, 0.12);
+    --surface: rgba(224, 245, 238, 0.05);
+    --surface-hover: rgba(224, 245, 238, 0.09);
+    --surface-raised: rgba(19, 45, 41, 0.88);
+    --surface-sunken: rgba(0, 0, 0, 0.24);
+    --hairline: rgba(174, 222, 210, 0.13);
+    --hairline-strong: rgba(174, 222, 210, 0.24);
+    --text: 239 238 226;
+    --text-muted: 160 190 182;
+    --text-faint: 126 158 150;
+    --brand: 111 191 173;
+    --brand-strong: 143 214 197;
+    --on-brand: 8 32 28;
+    --accent: 128 198 181;
+    --accent-strong: 168 224 209;
+    --on-accent: 8 32 28;
+    --warn: 245 176 65;
+    --danger: 244 122 110;
+    --info: 106 194 224;
+    --ring: 111 191 173;
+    --shadow-glass: 0 1px 0 0 rgba(224, 245, 238, 0.06) inset,
+      0 8px 24px -12px rgba(0, 0, 0, 0.6);
+    --shadow-raised: 0 1px 0 0 rgba(224, 245, 238, 0.08) inset,
+      0 24px 60px -20px rgba(0, 0, 0, 0.8);
+    color-scheme: dark;
   }
 }

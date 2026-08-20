@@ -1,0 +1,21 @@
+{
+  "name": "NexRota — ניהול משמרות חכם",
+  "short_name": "NexRota",
+  "description": "שיבוץ משמרות חכם לצוותי אבטחה",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f4e8",
+  "theme_color": "#f6f4e8",
+  "icons": [
+    {
+      "src": "/logo-mark.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

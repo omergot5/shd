@@ -3,18 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b1220" />
+    <meta name="theme-color" content="#f6f4e8" />
     <meta
       name="description"
-      content="Smart Shift Management — שיבוץ משמרות חכם לצוותי אבטחה. אלגוריתם שמכבד זמינות, שעות מנוחה והוגנות עומס, עם הסבר לכל החלטה."
+      content="NexRota — ניהול משמרות חכם. אלגוריתם שמכבד זמינות, שעות מנוחה והוגנות עומס, עם הסבר לכל החלטה."
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/logo-mark.png" />
 
-<!-- The interlocking cycles. Mirrors LogoMark in src/components/Logo.jsx —
-             keep in step. Served as a real file (not an inlined data URI) so
-             Vercel's project-avatar crawler can fetch it. -->
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- קובץ אמיתי ולא data URI, כדי שהסורק של Vercel יוכל למשוך אותו —
+         והוא אותו קובץ שהאפליקציה מציגה, כך שהלשונית והממשק לא ייפרדו. -->
+    <link rel="icon" type="image/png" href="/logo-mark.png" />
 
     <!-- Rubik carries Hebrew properly at every weight; `display=swap` keeps
          first paint on the system stack instead of blocking on the network. -->
@@ -25,7 +26,7 @@
       href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap"
     />
 
-    <title>Smart Shift Management — שיבוץ משמרות חכם</title>
+    <title>NexRota — ניהול משמרות חכם</title>
 
     <script>
       // Resolve the theme before the first paint. Without this a light-mode
