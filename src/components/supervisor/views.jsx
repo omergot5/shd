@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { SHIFT_TONES } from "../../design/shiftPalette.js";
 import {
   Alert, Avatar, Badge, Btn, Card, EmptyState, Field, guardColor, IconBtn, Input, Meter, Modal,
   PageHeader, readableInk, Select, StatCard,
@@ -8,7 +9,8 @@ import {
   availabilityDeadline, dayName, formatDateHe, fromISODate, rangeLabelHe, shiftHours, shortDate,
   toISODate, todayISO, weekByOffset,
 } from "../../lib/dates.js";
-import { availStatus } from "../../lib/autoAssign.js";
+import { availStatus, checkAssignment } from "../../lib/autoAssign.js";
+import { PROFILES, setTermProfile, subscribeTerms, t, termProfile } from "../../lib/terms.js";
 
 /**
  * Whole-week patterns. Two 12-hour shifts is the common security roster, but
@@ -19,35 +21,35 @@ const WEEK_PATTERNS = [
   {
     key: "x2", title: "2 משמרות ליום", hint: "12 שעות כל אחת — הנפוץ באבטחה",
     shifts: [
-      { label: "משמרת יום", startTime: "07:00", endTime: "19:00", type: "morning", color: "#3B82F6" },
-      { label: "משמרת לילה", startTime: "19:00", endTime: "07:00", type: "night", color: "#6366F1" },
+      { label: "משמרת יום", startTime: "07:00", endTime: "19:00", type: "morning", color: SHIFT_TONES.morning },
+      { label: "משמרת לילה", startTime: "19:00", endTime: "07:00", type: "night", color: SHIFT_TONES.night },
     ],
   },
   {
     key: "x3", title: "3 משמרות ליום", hint: "8 שעות כל אחת — בוקר, צהריים, לילה",
     shifts: [
-      { label: "בוקר", startTime: "07:00", endTime: "15:00", type: "morning", color: "#F59E0B" },
-      { label: "צהריים", startTime: "15:00", endTime: "23:00", type: "afternoon", color: "#3B82F6" },
-      { label: "לילה", startTime: "23:00", endTime: "07:00", type: "night", color: "#6366F1" },
+      { label: "בוקר", startTime: "07:00", endTime: "15:00", type: "morning", color: SHIFT_TONES.morning },
+      { label: "צהריים", startTime: "15:00", endTime: "23:00", type: "afternoon", color: SHIFT_TONES.afternoon },
+      { label: "לילה", startTime: "23:00", endTime: "07:00", type: "night", color: SHIFT_TONES.night },
     ],
   },
   {
     key: "x4", title: "4 משמרות ליום", hint: "6 שעות כל אחת — כיסוי צפוף",
     shifts: [
-      { label: "בוקר", startTime: "06:00", endTime: "12:00", type: "morning", color: "#F59E0B" },
-      { label: "צהריים", startTime: "12:00", endTime: "18:00", type: "afternoon", color: "#3B82F6" },
-      { label: "ערב", startTime: "18:00", endTime: "00:00", type: "evening", color: "#8B5CF6" },
-      { label: "לילה", startTime: "00:00", endTime: "06:00", type: "night", color: "#6366F1" },
+      { label: "בוקר", startTime: "06:00", endTime: "12:00", type: "morning", color: SHIFT_TONES.morning },
+      { label: "צהריים", startTime: "12:00", endTime: "18:00", type: "afternoon", color: SHIFT_TONES.afternoon },
+      { label: "ערב", startTime: "18:00", endTime: "00:00", type: "evening", color: SHIFT_TONES.evening },
+      { label: "לילה", startTime: "00:00", endTime: "06:00", type: "night", color: SHIFT_TONES.night },
     ],
   },
 ];
 
 const SHIFT_TEMPLATES = [
-  { key: "day12",   label: "יום 07:00–19:00",    startTime: "07:00", endTime: "19:00", type: "morning",   color: "#3B82F6" },
-  { key: "night12", label: "לילה 19:00–07:00",   startTime: "19:00", endTime: "07:00", type: "night",     color: "#6366F1" },
-  { key: "morning", label: "בוקר 07:00–15:00",   startTime: "07:00", endTime: "15:00", type: "morning",   color: "#F59E0B" },
-  { key: "noon",    label: "צהריים 15:00–23:00", startTime: "15:00", endTime: "23:00", type: "afternoon", color: "#3B82F6" },
-  { key: "night8",  label: "לילה 23:00–07:00",   startTime: "23:00", endTime: "07:00", type: "night",     color: "#6366F1" },
+  { key: "day12",   label: "יום 07:00–19:00",    startTime: "07:00", endTime: "19:00", type: "morning",   color: SHIFT_TONES.morning },
+  { key: "night12", label: "לילה 19:00–07:00",   startTime: "19:00", endTime: "07:00", type: "night",     color: SHIFT_TONES.night },
+  { key: "morning", label: "בוקר 07:00–15:00",   startTime: "07:00", endTime: "15:00", type: "morning",   color: SHIFT_TONES.morning },
+  { key: "noon",    label: "צהריים 15:00–23:00", startTime: "15:00", endTime: "23:00", type: "afternoon", color: SHIFT_TONES.afternoon },
+  { key: "night8",  label: "לילה 23:00–07:00",   startTime: "23:00", endTime: "07:00", type: "night",     color: SHIFT_TONES.night },
 ];
 
 /**
@@ -240,7 +242,7 @@ export function SupDashboard({ guards, shifts, swapRequests, tasks, team, onNavi
 // SHIFT MANAGEMENT
 // ============================================================
 
-export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
+export function ShiftMgmt({ shifts, guards, weekDates, actions, busy, embedded = false }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [spreadFrom, setSpreadFrom] = useState(null); // date whose layout is being copied
@@ -248,7 +250,7 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
   const [showFill, setShowFill] = useState(false);
   const blank = {
     date: weekDates[0], startTime: "07:00", endTime: "19:00", label: "משמרת יום",
-    location: "כניסה ראשית", requiredGuards: 1, type: "morning", color: "#3B82F6",
+    location: "כניסה ראשית", requiredGuards: 1, type: "morning", color: SHIFT_TONES.morning,
   };
   const [form, setForm] = useState(blank);
 
@@ -278,14 +280,17 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
     setEditing(null);
   };
 
+  /**
+   * "מלא שבוע" **מחליף** את השבוע, לא מוסיף עליו.
+   *
+   * הגרסה הקודמת דילגה על משמרות שכבר קיימות, ולכן מעבר מ-2 משמרות ליום
+   * ל-3 היה משאיר את השתיים הישנות ומוסיף שלוש — חמש משמרות ביום שאיש
+   * לא ביקש. מי שבוחר מבנה שבוע מצהיר איך השבוע נראה, ולא מבקש תוספת.
+   */
   const fillWeek = async (pattern) => {
-    const existing = new Set(weekShifts.map((s) => `${s.date}|${s.startTime}|${s.endTime}`));
     const rows = [];
     for (const date of weekDates) {
       for (const tpl of pattern.shifts) {
-        const key = `${date}|${tpl.startTime}|${tpl.endTime}`;
-        if (existing.has(key)) continue;
-        existing.add(key);
         rows.push({
           date,
           label: tpl.label,
@@ -294,8 +299,17 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
         });
       }
     }
-    if (rows.length) await actions.addShifts(rows);
+    await actions.replaceShifts(weekShifts.map((s) => s.id), rows);
     setShowFill(false);
+  };
+
+  /** מחיקת השבוע כולו. `deleteShifts` נותן UndoBar, ולכן אין דיאלוג אישור. */
+  const clearWeek = () => {
+    if (!weekShifts.length) return;
+    actions.deleteShifts(
+      weekShifts.map((s) => s.id),
+      `${weekShifts.length} משמרות נמחקו`
+    );
   };
 
   /**
@@ -351,10 +365,15 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="ניהול משמרות"
+        title={embedded ? null : t("nav.shifts")}
         subtitle={`${rangeLabelHe(weekDates)} · ${weekShifts.length} משמרות`}
         actions={
           <>
+            {weekShifts.length > 0 && (
+              <Btn variant="ghost" icon="trash" onClick={clearWeek} disabled={busy}>
+                מחק שבוע
+              </Btn>
+            )}
             <Btn variant="outline" icon="zap" onClick={() => setShowFill(true)} loading={busy}>
               מלא שבוע
             </Btn>
@@ -368,13 +387,30 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
       {weekShifts.length === 0 ? (
         <EmptyState
           icon="calendar"
-          title="אין משמרות בשבוע הזה"
-          body='לחץ "מלא שבוע" כדי ליצור משמרת יום ולילה לכל יום, או הוסף משמרת בודדת בהתאמה אישית.'
-          action={
-            <Btn size="lg" icon="zap" onClick={() => setShowFill(true)} loading={busy}>
-              מלא שבוע
-            </Btn>
-          }
+          title="אין עדיין משמרות בשבוע הזה"
+          body="בחר איך נראה שבוע רגיל אצלך, ואמלא לך את כל השבוע. אפשר לשנות כל משמרת אחר כך."
+          choices={[
+            {
+              label: "3 משמרות ביום",
+              hint: "בוקר · צהריים · לילה, 8 שעות כל אחת",
+              icon: "zap",
+              disabled: busy,
+              onClick: () => fillWeek(WEEK_PATTERNS.find((p) => p.key === "x3")),
+            },
+            {
+              label: "בוקר + לילה",
+              hint: "12 שעות כל אחת — הנפוץ באבטחה",
+              icon: "zap",
+              disabled: busy,
+              onClick: () => fillWeek(WEEK_PATTERNS.find((p) => p.key === "x2")),
+            },
+            {
+              label: "אבנה בעצמי",
+              hint: "משמרת אחת, בהתאמה אישית",
+              icon: "plus",
+              onClick: () => openNew(),
+            },
+          ]}
         />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
@@ -489,6 +525,11 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
           <p className="text-sm text-muted">
             בחר מבנה יום — הוא ייווצר לכל שבעת הימים בלחיצה אחת.
           </p>
+          {weekShifts.length > 0 && (
+            <Alert tone="warn">
+              {weekShifts.length} המשמרות שכבר בשבוע הזה יוחלפו, והשיבוצים שבהן יימחקו.
+            </Alert>
+          )}
           {WEEK_PATTERNS.map((p) => (
             <button
               key={p.key}
@@ -708,7 +749,7 @@ export function ShiftMgmt({ shifts, guards, weekDates, actions, busy }) {
 // AVAILABILITY REVIEW
 // ============================================================
 
-export function AvailView({ guards, shifts, availability, weekDates }) {
+export function AvailView({ guards, shifts, availability, weekDates, embedded = false }) {
   const weekShifts = shifts.filter((s) => weekDates.includes(s.date));
 
   const submitted = guards.filter((g) =>
@@ -718,7 +759,7 @@ export function AvailView({ guards, shifts, availability, weekDates }) {
   if (!weekShifts.length) {
     return (
       <div className="space-y-6">
-        <PageHeader title="זמינות שומרים" subtitle={rangeLabelHe(weekDates)} />
+        <PageHeader title={embedded ? null : t("nav.availability")} subtitle={rangeLabelHe(weekDates)} />
         <EmptyState
           icon="calendar"
           title="אין משמרות בשבוע הזה"
@@ -731,7 +772,7 @@ export function AvailView({ guards, shifts, availability, weekDates }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="זמינות שומרים"
+        title={embedded ? null : t("nav.availability")}
         subtitle={`${rangeLabelHe(weekDates)} · ${submitted.length} מתוך ${guards.length} הגישו`}
       />
 
@@ -813,7 +854,7 @@ export function AvailView({ guards, shifts, availability, weekDates }) {
 // MANUAL ASSIGNMENT
 // ============================================================
 
-export function AssignView({ guards, shifts, availability, weekDates, actions, busy, onNavigate }) {
+export function AssignView({ guards, shifts, availability, weekDates, actions, busy, onNavigate, embedded = false }) {
   const [date, setDate] = useState(weekDates[0]);
   useEffect(() => {
     if (!weekDates.includes(date)) setDate(weekDates[0]);
@@ -824,12 +865,14 @@ export function AssignView({ guards, shifts, availability, weekDates, actions, b
   return (
     <div className="space-y-6">
       <PageHeader
-        title="שיבוץ ידני"
+        title={embedded ? null : t("nav.assignment")}
         subtitle="לחץ על שומר כדי לשבץ או להסיר"
         actions={
-          <Btn variant="outline" icon="zap" onClick={() => onNavigate("smart")}>
-            עבור לשיבוץ חכם
-          </Btn>
+          embedded ? null : (
+            <Btn variant="outline" icon="zap" onClick={() => onNavigate("smart")}>
+              {t("nav.smart")}
+            </Btn>
+          )
         }
       />
 
@@ -938,7 +981,39 @@ export function AssignView({ guards, shifts, availability, weekDates, actions, b
 // PUBLISH
 // ============================================================
 
-export function ScheduleMgmt({ guards, shifts, weekDates, actions, busy }) {
+/**
+ * שיתוף השבוע כתמונה.
+ *
+ * הצוות חי בוואטסאפ, ולכן זו הדרך שבה סידור באמת מגיע לאנשים — גם אחרי
+ * שפורסם באפליקציה. הקוד של הרינדור נטען רק בלחיצה: הוא מיותר לחלוטין
+ * לכל מי שרק בונה סידור ולא משתף אותו.
+ */
+function ShareWeekBtn({ dates, shifts, guards }) {
+  const [state, setState] = useState("idle");
+  const run = async () => {
+    setState("working");
+    try {
+      const { shareWeekImage } = await import("../../lib/shareImage.js");
+      const how = await shareWeekImage({ dates, shifts, guards });
+      setState(how === "downloaded" ? "downloaded" : "idle");
+    } catch {
+      setState("failed");
+    }
+  };
+  return (
+    <Btn
+      variant="outline"
+      icon="image"
+      onClick={run}
+      loading={state === "working"}
+      title="תמונה שאפשר לשלוח בוואטסאפ"
+    >
+      {state === "downloaded" ? "התמונה הורדה" : state === "failed" ? "נסה שוב" : "שתף כתמונה"}
+    </Btn>
+  );
+}
+
+export function ScheduleMgmt({ guards, shifts, weekDates, actions, busy, embedded = false }) {
   const weekShifts = shifts.filter((s) => weekDates.includes(s.date));
   const allIds = weekShifts.map((s) => s.id);
   const publishedCount = weekShifts.filter((s) => s.published).length;
@@ -947,7 +1022,7 @@ export function ScheduleMgmt({ guards, shifts, weekDates, actions, busy }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="פרסום סידור"
+        title={embedded ? null : t("nav.schedule")}
         subtitle={`${rangeLabelHe(weekDates)} · ${publishedCount}/${weekShifts.length} מפורסמות`}
         actions={
           <>
@@ -960,6 +1035,9 @@ export function ScheduleMgmt({ guards, shifts, weekDates, actions, busy }) {
               <Btn variant="outline" onClick={() => actions.publish(allIds, false)} loading={busy}>
                 בטל פרסום
               </Btn>
+            )}
+            {weekShifts.length > 0 && (
+              <ShareWeekBtn dates={weekDates} shifts={weekShifts} guards={guards} />
             )}
           </>
         }
@@ -1061,8 +1139,20 @@ const SWAP_STATUS = {
   rejected: { label: "נדחה",  tone: "danger" },
 };
 
-export function SwapMgmt({ guards, shifts, swapRequests, actions, busy }) {
+export function SwapMgmt({ guards, shifts, availability = {}, swapRequests, actions, busy }) {
   const gName = (id) => guards.find((g) => g.id === id)?.name || "—";
+
+  // A swap the engine would never have produced must not be reachable by
+  // approving a request either — so the same hard constraints run here, and
+  // the reason is shown before the supervisor commits rather than after.
+  const legality = (r) => {
+    const shift = shifts.find((x) => x.id === r.shiftId);
+    const guard = guards.find((g) => g.id === r.toGuard);
+    if (!shift || !guard) {
+      return { ok: false, reason: "המשמרת או המאבטח כבר לא קיימים" };
+    }
+    return checkAssignment({ guard, shift, shifts, availability });
+  };
   const pending = swapRequests.filter((r) => r.status === "pending");
   const resolved = swapRequests.filter((r) => r.status !== "pending");
 
@@ -1079,6 +1169,7 @@ export function SwapMgmt({ guards, shifts, swapRequests, actions, busy }) {
         [...pending, ...resolved].map((r) => {
           const s = shifts.find((x) => x.id === r.shiftId);
           const status = SWAP_STATUS[r.status];
+          const legal = r.status === "pending" ? legality(r) : null;
           return (
             <Card key={r.id} className={r.status === "pending" ? "!border-warn/30" : "opacity-70"}>
               <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -1102,6 +1193,12 @@ export function SwapMgmt({ guards, shifts, swapRequests, actions, busy }) {
                         {r.message}
                       </p>
                     )}
+                    {legal && !legal.ok && (
+                      <p className="text-xs text-danger mt-2 flex items-start gap-1 font-semibold">
+                        <Icon name="alert" size={12} className="mt-[3px] flex-shrink-0" />
+                        <span>לא ניתן לאשר — {gName(r.toGuard)} {legal.reason}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
                 {r.status === "pending" && (
@@ -1110,8 +1207,9 @@ export function SwapMgmt({ guards, shifts, swapRequests, actions, busy }) {
                       variant="accent"
                       size="sm"
                       icon="check"
-                      onClick={() => actions.decideSwap(r.id, "approved")}
-                      disabled={busy}
+                      onClick={() => actions.decideSwap(r, "approved")}
+                      disabled={busy || !legal?.ok}
+                      title={legal?.ok ? undefined : legal?.reason}
                     >
                       אשר
                     </Btn>
@@ -1119,7 +1217,7 @@ export function SwapMgmt({ guards, shifts, swapRequests, actions, busy }) {
                       variant="danger"
                       size="sm"
                       icon="x"
-                      onClick={() => actions.decideSwap(r.id, "rejected")}
+                      onClick={() => actions.decideSwap(r, "rejected")}
                       disabled={busy}
                     >
                       דחה
@@ -1145,26 +1243,201 @@ const PRIORITY = {
   low:    { label: "נמוכה",  tone: "brand",  color: "rgb(var(--brand))" },
 };
 
+/**
+ * תיקיות מוצעות.
+ *
+ * תיקייה כאן היא **תווית, לא ישות**: היא נשמרת כטקסט על המשימה, ולכן
+ * מנהל משמרת ממציא "סיור לילה" תוך כדי עבודה בלי לפתוח מסך ניהול
+ * תיקיות ובלי הרשאות. הרשימה כאן היא רק קיצור דרך לשמות הנפוצים —
+ * מי שכותב שם אחר מקבל תיקייה חדשה באותה מידה.
+ */
+const FOLDERS = [
+  { name: "שמירות", icon: "shield" },
+  { name: "סיור", icon: "target" },
+  { name: "מטבח", icon: "inbox" },
+  { name: "ציוד", icon: "wrench" },
+  { name: "ניקיון", icon: "sparkles" },
+  { name: "כללי", icon: "clipboard" },
+];
+
+const UNFILED = "כללי";
+const folderIcon = (name) => FOLDERS.find((f) => f.name === name)?.icon || "clipboard";
+
+/** חלון הזמן של משימה, כמשפט אחד. */
+const rangeText = (task) => {
+  if (task.startDate && task.dueDate && task.startDate !== task.dueDate)
+    return `${formatDateHe(task.startDate)} – ${formatDateHe(task.dueDate)}`;
+  return task.dueDate ? formatDateHe(task.dueDate) : "";
+};
+
+/** ערימת פרצופים. מעל ארבעה — השאר נספרים, כי חמישה עיגולים כבר לא נקראים. */
+const People = ({ ids, guards, size = 22, max = 4 }) => {
+  const people = ids.map((id) => guards.find((g) => g.id === id)).filter(Boolean);
+  if (!people.length) return <span className="text-[11px] text-faint">אין משויכים</span>;
+  return (
+    <div className="flex items-center">
+      <div className="flex -space-x-1.5 space-x-reverse">
+        {people.slice(0, max).map((g) => (
+          <Avatar key={g.id} id={g.id} name={g.name} size={size} ring label={g.name} />
+        ))}
+      </div>
+      {people.length > max && (
+        <span className="text-[11px] text-muted font-semibold mr-2" data-numeric>
+          +{people.length - max}
+        </span>
+      )}
+    </div>
+  );
+};
+
 export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
   const [showForm, setShowForm] = useState(false);
-  const blank = { title: "", description: "", assignedTo: "", priority: "medium", dueDate: weekDates[0] };
+  const [editing, setEditing] = useState(null);
+  const [openFolder, setOpenFolder] = useState(null); // null = הכול
+
+  const blank = {
+    title: "", description: "", category: UNFILED, assignees: [],
+    priority: "medium", startDate: weekDates[0], dueDate: weekDates[6] || weekDates[0],
+  };
   const [form, setForm] = useState(blank);
   const field = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const toggleAssignee = (id) =>
+    setForm((f) => ({
+      ...f,
+      assignees: f.assignees.includes(id)
+        ? f.assignees.filter((x) => x !== id)
+        : [...f.assignees, id],
+    }));
+
+  const openNew = () => {
+    setForm({ ...blank, category: openFolder || UNFILED });
+    setEditing(null);
+    setShowForm(true);
+  };
+
+  const openEdit = (task) => {
+    setForm({
+      title: task.title, description: task.description, category: task.category || UNFILED,
+      assignees: task.assignees || [], priority: task.priority,
+      startDate: task.startDate || "", dueDate: task.dueDate || "",
+    });
+    setEditing(task.id);
+    setShowForm(true);
+  };
+
   const save = async () => {
     if (!form.title.trim()) return;
-    await actions.createTask(form);
-    setForm(blank);
+    // חלון הפוך הוא שגיאת הקלדה, לא כוונה — מיישרים אותו במקום לחסום.
+    const clean =
+      form.startDate && form.dueDate && form.startDate > form.dueDate
+        ? { ...form, startDate: form.dueDate, dueDate: form.startDate }
+        : form;
+    if (editing) await actions.editTask(editing, clean);
+    else await actions.createTask(clean);
     setShowForm(false);
+    setEditing(null);
+  };
+
+  /**
+   * קיבוץ לתיקיות. הסדר הוא: התיקיות המוצעות לפי סדרן, ואחריהן כל שם
+   * שהמשתמש המציא, לפי א״ב — כך שמיקום התיקייה במסך לא קופץ בכל טעינה.
+   */
+  const folders = (() => {
+    const map = new Map();
+    for (const task of tasks) {
+      const key = task.category || UNFILED;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(task);
+    }
+    const known = FOLDERS.map((f) => f.name).filter((n) => map.has(n));
+    const custom = [...map.keys()].filter((n) => !FOLDERS.some((f) => f.name === n)).sort();
+    return [...known, ...custom].map((name) => {
+      const items = map.get(name);
+      const open = items.filter((t) => t.status !== "done");
+      return {
+        name,
+        items,
+        open: open.length,
+        // מי משויך לתיקייה = איחוד המשויכים של המשימות הפתוחות שבה.
+        people: [...new Set(open.flatMap((t) => t.assignees || []))],
+      };
+    });
+  })();
+
+  const shown = openFolder ? folders.filter((f) => f.name === openFolder) : folders;
+  const openCount = tasks.filter((t) => t.status !== "done").length;
+
+  const TaskRow = ({ task }) => {
+    const done = task.status === "done";
+    const prio = PRIORITY[task.priority] || PRIORITY.medium;
+    const range = rangeText(task);
+    return (
+      <div
+        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-200
+          hover:bg-surface-hover ${done ? "opacity-55" : ""}`}
+      >
+        <button
+          onClick={() => actions.toggleTask(task.id, done ? "pending" : "done")}
+          disabled={busy}
+          role="checkbox"
+          aria-checked={done}
+          aria-label={`${task.title} — ${done ? "בוצע" : "לא בוצע"}`}
+          className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 cursor-pointer
+            ring-1 ring-inset transition-colors duration-200 ${
+              done
+                ? "bg-accent text-on-accent ring-accent"
+                : "bg-surface-sunken ring-hairline hover:ring-accent/50"
+            }`}
+        >
+          {done && <Icon name="check" size={14} strokeWidth={3} />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => openEdit(task)}
+          className="flex-1 min-w-0 text-right cursor-pointer"
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className={`font-semibold text-sm ${done ? "line-through text-muted" : "text-content"}`}
+            >
+              {task.title}
+            </span>
+            <Badge tone={prio.tone}>
+              <Dot color={prio.color} size={6} />
+              {prio.label}
+            </Badge>
+          </div>
+          {task.description && <p className="text-xs text-muted mt-0.5">{task.description}</p>}
+          {range && (
+            <span className="flex items-center gap-1 mt-1 text-[11px] text-faint" data-numeric>
+              <Icon name="calendar" size={11} />
+              {range}
+            </span>
+          )}
+        </button>
+
+        <People ids={task.assignees || []} guards={guards} size={24} max={3} />
+
+        <IconBtn
+          icon="trash"
+          label={`מחק את המשימה ${task.title}`}
+          size="sm"
+          className="hover:text-danger flex-shrink-0"
+          onClick={() => actions.deleteTask(task.id)}
+        />
+      </div>
+    );
   };
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="משימות"
-        subtitle={`${tasks.filter((t) => t.status !== "done").length} פתוחות`}
+        subtitle={`${openCount} פתוחות · ${folders.length} תיקיות`}
         actions={
-          <Btn icon="plus" onClick={() => setShowForm(true)}>
+          <Btn icon="plus" onClick={openNew}>
             משימה
           </Btn>
         }
@@ -1172,85 +1445,98 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
 
       {tasks.length === 0 ? (
         <EmptyState
-          icon="pencil"
-          title="אין משימות"
-          body="הגדר משימות לצוות — בדיקת ציוד, תרגילים, דוחות."
+          icon="clipboard"
+          title="אין עדיין משימות"
+          body="משימה נשמרת בתיקייה — שמירות, סיור, מטבח — עם טווח תאריכים והאנשים שמבצעים אותה."
           action={
-            <Btn icon="plus" onClick={() => setShowForm(true)}>
+            <Btn icon="plus" onClick={openNew}>
               משימה ראשונה
             </Btn>
           }
         />
       ) : (
-        <div className="space-y-2">
-          {tasks.map((t) => {
-            const g = guards.find((x) => x.id === t.assignedTo);
-            const done = t.status === "done";
-            const prio = PRIORITY[t.priority] || PRIORITY.medium;
-            return (
-              <Card key={t.id} className={done ? "opacity-60" : ""}>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => actions.toggleTask(t.id, done ? "pending" : "done")}
-                    disabled={busy}
-                    role="checkbox"
-                    aria-checked={done}
-                    aria-label={`${t.title} — ${done ? "בוצע" : "לא בוצע"}`}
-                    className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 cursor-pointer
-                      ring-1 ring-inset transition-colors duration-200 ${
-                        done
-                          ? "bg-accent text-on-accent ring-accent"
-                          : "bg-surface-sunken ring-hairline hover:ring-accent/50"
-                      }`}
+        <>
+          {/* שורת התיקיות. גם ניווט וגם תשובה לשאלה "מי על מה" — כל שבב
+            * נושא את מספר המשימות הפתוחות בתיקייה שלו. */}
+          <div className="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setOpenFolder(null)}
+              aria-pressed={openFolder === null}
+              className={`h-10 px-3.5 rounded-xl text-sm font-semibold cursor-pointer
+                ring-1 ring-inset transition-colors duration-200 ${
+                  openFolder === null
+                    ? "bg-brand text-on-brand ring-brand"
+                    : "bg-surface-sunken ring-hairline text-muted hover:text-content"
+                }`}
+            >
+              הכול
+            </button>
+            {folders.map((f) => {
+              const on = openFolder === f.name;
+              return (
+                <button
+                  key={f.name}
+                  type="button"
+                  onClick={() => setOpenFolder(on ? null : f.name)}
+                  aria-pressed={on}
+                  className={`h-10 px-3.5 rounded-xl text-sm font-semibold cursor-pointer
+                    flex items-center gap-2 ring-1 ring-inset transition-colors duration-200 ${
+                      on
+                        ? "bg-brand text-on-brand ring-brand"
+                        : "bg-surface-sunken ring-hairline text-muted hover:text-content"
+                    }`}
+                >
+                  <Icon name={folderIcon(f.name)} size={15} />
+                  {f.name}
+                  <span
+                    className={`text-[11px] font-bold ${on ? "opacity-80" : "text-faint"}`}
+                    data-numeric
                   >
-                    {done && <Icon name="check" size={14} strokeWidth={3} />}
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className={`font-semibold text-sm ${done ? "line-through text-muted" : "text-content"}`}
-                      >
-                        {t.title}
-                      </span>
-                      <Badge tone={prio.tone}>
-                        <Dot color={prio.color} size={6} />
-                        {prio.label}
-                      </Badge>
-                    </div>
-                    {t.description && <p className="text-xs text-muted mt-0.5">{t.description}</p>}
-                    <div className="flex gap-3 mt-1 text-[11px] text-faint flex-wrap">
-                      {g && (
-                        <span className="flex items-center gap-1">
-                          <Icon name="user" size={11} />
-                          {g.name}
-                        </span>
-                      )}
-                      {t.dueDate && (
-                        <span className="flex items-center gap-1">
-                          <Icon name="calendar" size={11} />
-                          {formatDateHe(t.dueDate)}
-                        </span>
-                      )}
-                    </div>
+                    {f.open}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* לא <Card>: הריפוד שלו הוא p-5, ו-p-0 באותה קבוצת utility לא
+            * בהכרח מנצח אותו בסדר ה-CSS. כותרת התיקייה חייבת להיצמד לשוליים,
+            * אז המשטח נבנה כאן במפורש. */}
+          <div className="space-y-4">
+            {shown.map((f) => (
+              <div key={f.name} className="glass rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3 bg-surface-sunken border-b border-hairline flex-wrap">
+                  <span className="w-9 h-9 rounded-xl bg-brand/12 text-brand ring-1 ring-inset ring-brand/25 flex items-center justify-center flex-shrink-0">
+                    <Icon name={folderIcon(f.name)} size={18} />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="font-bold text-content text-[15px]">{f.name}</h2>
+                    <p className="text-[11px] text-muted" data-numeric>
+                      {f.open} פתוחות מתוך {f.items.length}
+                    </p>
                   </div>
-                  <IconBtn
-                    icon="trash"
-                    label={`מחק את המשימה ${t.title}`}
-                    size="sm"
-                    className="hover:text-danger"
-                    onClick={() => actions.deleteTask(t.id)}
-                  />
+                  {/* השאלה "מי בשמירות" נענית כאן, בלי לפתוח אף משימה. */}
+                  <div className="mr-auto flex items-center gap-2">
+                    <span className="text-[11px] text-faint hidden sm:inline">מי בתיקייה</span>
+                    <People ids={f.people} guards={guards} />
+                  </div>
                 </div>
-              </Card>
-            );
-          })}
-        </div>
+                <div className="p-1.5">
+                  {f.items.map((task) => (
+                    <TaskRow key={task.id} task={task} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
-        title="משימה חדשה"
+        title={editing ? "עריכת משימה" : "משימה חדשה"}
         footer={
           <>
             <Btn onClick={save} loading={busy} disabled={!form.title.trim()} className="flex-1">
@@ -1264,38 +1550,85 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
       >
         <div className="space-y-3">
           <Field label="כותרת">
-            <Input value={form.title} onChange={field("title")} placeholder="בדיקת ציוד אבטחה" />
+            <Input
+              value={form.title}
+              onChange={field("title")}
+              placeholder="בדיקת ציוד אבטחה"
+              autoFocus
+            />
           </Field>
-          <Field label="תיאור">
+
+          <Field label="תיאור" hint="אופציונלי">
             <Input value={form.description} onChange={field("description")} />
           </Field>
+
+          <Field
+            label="תיקייה"
+            hint="אפשר להקליד שם חדש — הוא ייפתח כתיקייה"
+            htmlFor="task-folder"
+          >
+            <Input
+              id="task-folder"
+              list="task-folders"
+              value={form.category}
+              onChange={field("category")}
+              placeholder={UNFILED}
+            />
+            {/* datalist ולא select: השמות המוכרים מוצעים, ושם חדש עדיין מותר. */}
+            <datalist id="task-folders">
+              {[...new Set([...FOLDERS.map((f) => f.name), ...folders.map((f) => f.name)])].map(
+                (n) => (
+                  <option key={n} value={n} />
+                )
+              )}
+            </datalist>
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
-            <Field label="מוקצה ל">
-              <Select value={form.assignedTo} onChange={field("assignedTo")}>
-                <option value="">ללא</option>
-                {guards.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </Select>
+            <Field label="מתאריך">
+              <Input type="date" value={form.startDate || ""} onChange={field("startDate")} />
             </Field>
-            <Field label="עדיפות">
-              <Select value={form.priority} onChange={field("priority")}>
-                <option value="high">גבוהה</option>
-                <option value="medium">בינונית</option>
-                <option value="low">נמוכה</option>
-              </Select>
+            <Field label="עד תאריך">
+              <Input type="date" value={form.dueDate || ""} onChange={field("dueDate")} />
             </Field>
           </div>
-          <Field label="תאריך יעד">
-            <Select value={form.dueDate} onChange={field("dueDate")}>
-              {weekDates.map((d) => (
-                <option key={d} value={d}>
-                  {formatDateHe(d)}
-                </option>
-              ))}
+
+          <Field label="עדיפות">
+            <Select value={form.priority} onChange={field("priority")}>
+              <option value="high">גבוהה</option>
+              <option value="medium">בינונית</option>
+              <option value="low">נמוכה</option>
             </Select>
+          </Field>
+
+          <Field
+            label="מי מבצע"
+            hint={form.assignees.length ? `${form.assignees.length} נבחרו` : "אפשר לבחור כמה"}
+          >
+            <div className="flex flex-wrap gap-2">
+              {guards.map((g) => {
+                const on = form.assignees.includes(g.id);
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => toggleAssignee(g.id)}
+                    aria-pressed={on}
+                    className={`flex items-center gap-2 h-11 pr-1.5 pl-3 rounded-xl cursor-pointer
+                      ring-1 ring-inset transition-colors duration-200 ${
+                        on
+                          ? "bg-brand/12 ring-brand/45 text-content"
+                          : "bg-surface-sunken ring-hairline text-muted hover:text-content"
+                      }`}
+                  >
+                    <Avatar id={g.id} name={g.name} size={26} />
+                    <span className="text-sm font-medium">{g.name}</span>
+                    {/* וי ולא רק צבע — אותו כלל שחל על כל שאר המוצר. */}
+                    {on && <Icon name="check" size={14} className="text-brand" strokeWidth={3} />}
+                  </button>
+                );
+              })}
+            </div>
           </Field>
         </div>
       </Modal>
@@ -1323,7 +1656,7 @@ function DeadlineSettings({ team, actions, busy }) {
     <Card>
       <h2 className="font-bold text-content mb-1 flex items-center gap-2">
         <Icon name="bell" size={18} className="text-brand" />
-        מועד הגשת זמינות
+        עד מתי אפשר להגיש
       </h2>
       <p className="text-sm text-muted mb-4">
         השומרים רואים ספירה לאחור, וההתראה מתחדדת ככל שהמועד מתקרב.
@@ -1370,13 +1703,69 @@ function DeadlineSettings({ team, actions, busy }) {
   );
 }
 
+/**
+ * בחירת תחום הפעילות.
+ *
+ * זו לא הגדרה טכנית אלא שאלה אחת בשפה של המשתמש — "איפה אתה עובד?" —
+ * שמשנה את אוצר המילים של כל המוצר. המבנה נשאר זהה בכל הפרופילים; מפקד
+ * ואחמ"ש עושים בדיוק את אותם ארבעה שלבים, רק קוראים להם אחרת.
+ *
+ * הבחירה נשמרת מקומית ולא בשרת: היא מאפיין של מי שמסתכל, לא של הצוות, ואין
+ * סיבה שהחלפה אצל אחד תשנה את המסך של אחר. חוץ מזה היא לא דורשת מיגרציה.
+ */
+function ProfilePicker() {
+  const active = useSyncExternalStore(subscribeTerms, termProfile, termProfile);
+  return (
+    <Card>
+      <h2 className="font-bold text-content mb-1 flex items-center gap-2">
+        <Icon name="shield" size={18} className="text-brand" />
+        תחום הפעילות
+      </h2>
+      <p className="text-sm text-muted mb-4">
+        משנה את המילים בממשק כך שיתאימו למקום שבו אתה עובד. השלבים והחישובים
+        זהים בכל הפרופילים.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {PROFILES.map((p) => {
+          const on = p.id === active;
+          return (
+            <button
+              key={p.id}
+              onClick={() => setTermProfile(p.id)}
+              aria-pressed={on}
+              className={`text-right rounded-2xl p-4 ring-1 ring-inset cursor-pointer
+                transition-[background,box-shadow] duration-200 flex items-start gap-3 ${
+                  on
+                    ? "bg-brand/15 ring-brand/40"
+                    : "bg-surface-sunken ring-hairline hover:bg-surface-hover"
+                }`}
+            >
+              <span
+                className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  on ? "bg-brand text-on-brand" : "bg-surface ring-1 ring-inset ring-hairline text-muted"
+                }`}
+              >
+                <Icon name={on ? "check" : p.icon} size={19} />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-bold text-content">{p.label}</span>
+                <span className="block text-xs text-muted mt-0.5">{p.hint}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 export function TeamView({ user, team, guards, actions, busy, onSeedDemo }) {
   const [copied, setCopied] = useState(null); // 'code' | 'message' | null
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
 
   const code = user.teamCode;
-  const shareMsg = `שלום! מזמין אותך להצטרף למערכת Smart Shift Management של הצוות.
+  const shareMsg = `שלום! מזמין אותך להצטרף למערכת NexRota של הצוות.
 קוד הצוות שלנו: ${code}
 נכנסים לאפליקציה, בוחרים "מאבטח" ומזינים את הקוד ואת השם המלא.`;
 
@@ -1399,7 +1788,9 @@ export function TeamView({ user, team, guards, actions, busy, onSeedDemo }) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="הצוות שלי" subtitle={team?.name || "נהל שומרים ושתף את קוד הצוות"} />
+      <PageHeader title={t("nav.team")} subtitle={team?.name || "נהל שומרים ושתף את קוד הצוות"} />
+
+      <ProfilePicker />
 
       <DeadlineSettings team={team} actions={actions} busy={busy} />
 

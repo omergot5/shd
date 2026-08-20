@@ -8,6 +8,7 @@
 // ============================================================
 
 import { supabase } from "./supabaseClient.js";
+import { shiftTone } from "../design/shiftPalette.js";
 
 // ---------- row <-> app mappers ----------
 
@@ -22,7 +23,7 @@ export const shiftFromRow = (row) => ({
   location: row.location || "",
   requiredGuards: row.required_guards ?? 1,
   type: row.type || "custom",
-  color: row.color || "#3B82F6",
+  color: shiftTone(row.color, row.type),
   published: Boolean(row.published),
   assignedGuards: (row.gs_assignments || []).map((a) => a.guard_id),
   assignmentMeta: Object.fromEntries(
@@ -40,7 +41,7 @@ export const shiftToRow = (shift, teamCode) => ({
   location: shift.location || "כניסה ראשית",
   required_guards: shift.requiredGuards || 1,
   type: shift.type || "custom",
-  color: shift.color || "#3B82F6",
+  color: shiftTone(shift.color, shift.type),
   published: Boolean(shift.published),
 });
 
@@ -76,9 +77,17 @@ export const taskFromRow = (row) => ({
   id: row.id,
   title: row.title,
   description: row.description || "",
-  assignedTo: row.assigned_to,
+  category: row.category || "",
+  // מקור אחד לאמת: `assignees` הוא המערך, ו-`assigned_to` הישן נקרא
+  // כמערך בן איבר אחד כדי שמשימות שנוצרו לפני התיקיות לא ייעלמו.
+  assignees: Array.isArray(row.assignees)
+    ? row.assignees
+    : row.assigned_to
+      ? [row.assigned_to]
+      : [],
   status: row.status,
   priority: row.priority,
+  startDate: row.start_date || null,
   dueDate: row.due_date,
 });
 
@@ -89,7 +98,7 @@ export async function getSession() {
   return data?.session || null;
 }
 
-/** Resolve the signed-in user to a Smart Shift Management profile, if they have one. */
+/** Resolve the signed-in user to a NexRota profile, if they have one. */
 export async function getMyProfile() {
   const session = await getSession();
   if (!session) return null;
@@ -289,6 +298,18 @@ export async function deleteShift(shiftId) {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * מחיקת כמה משמרות בבקשה אחת.
+ *
+ * לולאה על deleteShift הייתה שולחת שבע־עשרה בקשות למחיקת שבוע, וכל אחת
+ * מהן יכולה להיכשל בנפרד — כלומר שבוע שנמחק חצי. `in` הוא אטומי.
+ */
+export async function deleteShifts(shiftIds) {
+  if (!shiftIds.length) return;
+  const { error } = await supabase.from("gs_shifts").delete().in("id", shiftIds);
+  if (error) throw new Error(error.message);
+}
+
 export async function setPublished(shiftIds, published) {
   if (!shiftIds.length) return;
   const { error } = await supabase.from("gs_shifts").update({ published }).in("id", shiftIds);
@@ -401,29 +422,83 @@ export async function createSwap({ teamCode, shiftId, fromGuard, toGuard, messag
   return swapFromRow(data);
 }
 
-export async function decideSwap(id, status) {
+/**
+ * Approving a swap has to *move* the shift, not merely record a decision.
+ * The move happens first: if the roster write fails the request stays pending,
+ * which is recoverable — a request marked approved over an unchanged roster is
+ * not, because nothing afterwards reveals that the two disagree.
+ *
+ * Legality is checked by the caller through `checkAssignment`, so an approval
+ * can never produce a roster the engine itself would have refused to generate.
+ */
+export async function decideSwap(swap, status) {
+  const id = typeof swap === "string" ? swap : swap?.id;
+  if (!id) throw new Error("בקשת החלפה לא תקינה");
+
+  if (status === "approved" && typeof swap === "object") {
+    const { shiftId, fromGuard, toGuard } = swap;
+    if (shiftId && fromGuard && toGuard) {
+      await unassignGuard({ shiftId, guardId: fromGuard });
+      await assignGuard({
+        shiftId, guardId: toGuard, source: "swap",
+        reason: "החלפה שאושרה על ידי האחמ\"ש",
+      });
+    }
+  }
+
   const { error } = await supabase.from("gs_swap_requests").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
 // ---------- tasks ----------
 
+/**
+ * העמודות שנוספו עם התיקיות. אם המיגרציה עוד לא רצה, Postgres מחזיר
+ * שגיאת "עמודה לא קיימת" — ואז עדיף להגיד את זה במילים מפורשות מאשר
+ * לשמור בשקט משימה בלי תיקייה ובלי משויכים ולתת למשתמש לגלות לבד.
+ */
+const MIGRATION_HINT =
+  "בסיס הנתונים עדיין לא מכיר תיקיות משימות. הרץ את supabase/migrations/0002_task_folders.sql ואז נסה שוב.";
+
+const taskColumns = (task) => ({
+  title: task.title,
+  description: task.description || null,
+  category: task.category || null,
+  assignees: task.assignees || [],
+  // נשמר גם בעמודה הישנה, כדי שמסכים שעוד קוראים ממנה לא יישברו.
+  assigned_to: (task.assignees || [])[0] || null,
+  priority: task.priority || "medium",
+  start_date: task.startDate || null,
+  due_date: task.dueDate || null,
+});
+
+const asTaskError = (error) => {
+  const m = String(error.message || "");
+  return new Error(
+    /column .*(category|assignees|start_date)/i.test(m) || error.code === "PGRST204"
+      ? MIGRATION_HINT
+      : m
+  );
+};
+
 export async function createTask(task, teamCode) {
-  const { data, error } = await supabase.from("gs_tasks").insert({
-    team_code: teamCode, title: task.title, description: task.description || null,
-    assigned_to: task.assignedTo || null, priority: task.priority || "medium",
-    due_date: task.dueDate || null,
-  }).select().single();
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabase
+    .from("gs_tasks")
+    .insert({ team_code: teamCode, ...taskColumns(task) })
+    .select()
+    .single();
+  if (error) throw asTaskError(error);
   return taskFromRow(data);
 }
 
 export async function updateTask(id, patch) {
-  const row = {};
+  // עדכון סטטוס הוא הנתיב החם (סימון וי) ונוגע רק בעמודה אחת; עריכה
+  // מלאה כותבת את כל השדות.
+  const row = patch.full ? taskColumns(patch) : {};
   if (patch.status) row.status = patch.status;
-  if (patch.title) row.title = patch.title;
+  if (!patch.full && patch.title) row.title = patch.title;
   const { error } = await supabase.from("gs_tasks").update(row).eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) throw asTaskError(error);
 }
 
 export async function deleteTask(id) {

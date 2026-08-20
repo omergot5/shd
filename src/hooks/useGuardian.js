@@ -34,6 +34,36 @@ const EMPTY = {
 };
 
 /**
+ * צילום אחרון של הנתונים, לקריאה כשאין רשת.
+ *
+ * ה-service worker לא יכול לעשות את זה: הנתונים מגיעים מ-Supabase ב-POST
+ * וב-WebSocket, לא כ-GET שאפשר למטמן. הם נשמרים כאן במלואם — הצוות, הסידור
+ * והזמינות — כך שמאבטח במוצב בלי קליטה רואה בדיוק את מה שראה לאחרונה.
+ *
+ * המטמון הוא לקריאה בלבד ואף פעם לא מקור אמת: ברגע שהרשת חוזרת, `refresh`
+ * דורס אותו. חריגה שקטה בכתיבה מכוונת — מכסת אחסון מלאה או גלישה פרטית לא
+ * אמורות למנוע מהאפליקציה לעבוד.
+ */
+const OFFLINE_KEY = "gs-offline";
+
+const saveOffline = (profile, team) => {
+  try {
+    localStorage.setItem(OFFLINE_KEY, JSON.stringify({ profile, team }));
+  } catch {
+    /* אין מקום או שהאחסון חסום — נמשיך בלי מצב לא־מקוון */
+  }
+};
+
+const readOffline = () => {
+  try {
+    const raw = localStorage.getItem(OFFLINE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * True when this page load came from a password-recovery email. Read once at
  * module load: supabase-js strips the fragment as soon as it exchanges the
  * token, so by the time a component effect runs the evidence is gone.
@@ -48,6 +78,9 @@ export function useGuardian() {
   const [data, setData] = useState(EMPTY);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // "הנתונים על המסך הם צילום ישן". מוצג, ולא מוסתר: משתמש שרואה סידור בלי
+  // לדעת שהוא לא מעודכן הוא בדיוק הכשל שהמצב הלא־מקוון אמור למנוע.
+  const [offline, setOffline] = useState(false);
   const mounted = useRef(true);
 
   // Mirror of `data` for async callbacks. Reading state straight out of a
@@ -96,6 +129,17 @@ export function useGuardian() {
       await hydrate(profile);
     } catch (e) {
       if (!mounted.current) return;
+      // נפילה בזמן שאין רשת היא ההסבר הסביר היחיד להגיש נתונים ישנים. אם
+      // הדפדפן מדווח שיש חיבור, הכשל הוא משהו אחר — שגיאת הרשאה, למשל —
+      // ולהציג צילום ישן במקומה זו הטעיה.
+      const cached = !navigator.onLine && readOffline();
+      if (cached?.profile && cached?.team) {
+        setData(cached.team);
+        setUser(cached.profile);
+        setOffline(true);
+        setStatus("ready");
+        return;
+      }
       setError(e.message || "לא הצלחנו לטעון את הנתונים");
       setStatus("error");
     }
@@ -110,11 +154,33 @@ export function useGuardian() {
     if (!teamCode) return;
     try {
       const team = await api.loadTeam(teamCode);
-      if (mounted.current) setData(team);
+      if (mounted.current) {
+        setData(team);
+        setOffline(false);
+      }
     } catch (e) {
       if (mounted.current) setError(e.message);
     }
   }, []);
+
+  // צילום המטמון נכתב ממקום אחד — כל מצב "ready" שנצבע נשמר. שמירה בכל
+  // פעולה בנפרד הייתה נשכחת בפעולה הבאה שמישהו יוסיף.
+  useEffect(() => {
+    if (status === "ready" && user && data.team && !offline) saveOffline(user, data);
+  }, [status, user, data, offline]);
+
+  // חזרת הרשת מרעננת מיד. בלי זה המשתמש נשאר עם צילום ישן עד לפעולה הבאה,
+  // ובאבטחה זה בדיוק הזמן שבו הסידור השתנה.
+  useEffect(() => {
+    const back = () => refresh();
+    window.addEventListener("online", back);
+    const gone = () => setOffline(true);
+    window.addEventListener("offline", gone);
+    return () => {
+      window.removeEventListener("online", back);
+      window.removeEventListener("offline", gone);
+    };
+  }, [refresh]);
 
   // ---------- live updates ----------
   // Everyone on a team shares one channel; any write nudges the others to
@@ -179,6 +245,66 @@ export function useGuardian() {
       }),
     [run]
   );
+
+  /**
+   * פעולה הפיכה — בלי חלונית אישור.
+   *
+   * "האם אתה בטוח?" עוצר את כולם כדי להגן מפני הטעות של אחד, ומי שלוחץ עשר
+   * פעמים ביום מפסיק לקרוא אותה בלאו הכי. במקום זה: המסך מתעדכן מיד, הכתיבה
+   * לשרת ממתינה שמונה שניות, ובחלון הזה "ביטול" פשוט מבטל את הטיימר — לא
+   * מריץ פעולה הפוכה. לכן אין מה שיכשל בביטול, ואין שורה שנמחקה ונוצרה מחדש
+   * עם מזהה אחר.
+   *
+   * המחיר: הכתיבה חייבת להישלח גם אם עוזבים את המסך. `flush` נקרא לפני כל
+   * פעולה נדחית חדשה, ובפריקת הרכיב.
+   */
+  const pendingRef = useRef(null);
+  // `flush` נקרא מתוך טיימר שנוצר לפניו — הפניה דרך ref שוברת את המעגל.
+  const flushRef = useRef(null);
+  const [pending, setPending] = useState(null);
+
+  const flush = useCallback(() => {
+    const p = pendingRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pendingRef.current = null;
+    setPending(null);
+    run(async () => {
+      try {
+        await p.work();
+      } catch (e) {
+        if (mounted.current) setData(p.snapshot);
+        throw e;
+      }
+    });
+  }, [run]);
+
+  const undo = useCallback(() => {
+    const p = pendingRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pendingRef.current = null;
+    setPending(null);
+    setData(p.snapshot);
+  }, []);
+
+  const deferred = useCallback(
+    (label, patch, work) => {
+      flush();
+      const snapshot = dataRef.current;
+      setData(patch);
+      const timer = setTimeout(() => flushRef.current(), 8000);
+      pendingRef.current = { label, work, snapshot, timer };
+      setPending({ label });
+    },
+    [flush]
+  );
+
+  flushRef.current = flush;
+
+  // עזיבת המסך שולחת את מה שממתין. אחרת פעולה שהמשתמש כבר ראה מתבצעת
+  // הייתה נעלמת ברענון הבא.
+  useEffect(() => () => flushRef.current(), []);
 
   // ---------- auth actions ----------
 
@@ -291,7 +417,15 @@ export function useGuardian() {
 
   const logout = useCallback(async () => {
     await api.logout();
+    // הצילום הלא־מקוון יורד ביציאה. טלפון עובר בין אנשים, ומי שנכנס אחריו
+    // לא אמור לראות את הסידור של הקודם רק כי אין קליטה.
+    try {
+      localStorage.removeItem(OFFLINE_KEY);
+    } catch {
+      /* אחסון חסום — אין מה לנקות */
+    }
     if (!mounted.current) return;
+    setOffline(false);
     setUser(null);
     setData(EMPTY);
     setError(null);
@@ -331,10 +465,36 @@ export function useGuardian() {
         }),
 
       deleteShift: (id) =>
-        optimistic(
+        deferred(
+          "המשמרת נמחקה",
           (d) => ({ ...d, shifts: d.shifts.filter((s) => s.id !== id) }),
           () => api.deleteShift(id)
         ),
+
+      /**
+       * מחיקת אצווה — למשל כל השבוע. עוברת דרך `deferred` בדיוק כמו מחיקה
+       * בודדת, ולכן מקבלים שמונה שניות של "ביטול" במקום דיאלוג אישור.
+       */
+      deleteShifts: (ids, label = "המשמרות נמחקו") =>
+        deferred(
+          label,
+          (d) => ({ ...d, shifts: d.shifts.filter((s) => !ids.includes(s.id)) }),
+          () => api.deleteShifts(ids)
+        ),
+
+      /**
+       * החלפת תוכן השבוע: מה שהיה יורד, ומה שנבחר עולה במקומו.
+       *
+       * לא עובר דרך `deferred` בכוונה — מחיקה והוספה שמחכות שמונה שניות
+       * היו מתחרות זו בזו, והמשתמש היה רואה שבוע כפול באמצע. פעולה אחת,
+       * מיידית, ואם משהו נופל ברשת ה-refresh מחזיר את המצב האמיתי.
+       */
+      replaceShifts: (ids, rows) =>
+        run(async () => {
+          if (ids.length) await api.deleteShifts(ids);
+          if (rows.length) await api.createShifts(rows, dataRef.current.team?.code);
+          await refresh();
+        }),
 
       publish: (shiftIds, published) =>
         optimistic(
@@ -376,10 +536,16 @@ export function useGuardian() {
         }),
 
       clearAssignments: (shiftIds) =>
-        run(async () => {
-          await api.clearAssignments(shiftIds);
-          await refresh();
-        }),
+        deferred(
+          "השיבוץ נוקה",
+          (d) => ({
+            ...d,
+            shifts: d.shifts.map((s) =>
+              shiftIds.includes(s.id) ? { ...s, assignedGuards: [] } : s
+            ),
+          }),
+          () => api.clearAssignments(shiftIds)
+        ),
 
       setAvailability: (shiftId, guardId, status, comment) =>
         optimistic(
@@ -400,7 +566,8 @@ export function useGuardian() {
         }),
 
       removeGuard: (id) =>
-        optimistic(
+        deferred(
+          "האדם הוסר מהצוות",
           (d) => ({ ...d, guards: d.guards.filter((g) => g.id !== id) }),
           () => api.removeGuard(id)
         ),
@@ -427,18 +594,23 @@ export function useGuardian() {
           await refresh();
         }),
 
-      decideSwap: (id, status) =>
-        optimistic(
-          (d) => ({
-            ...d,
-            swapRequests: d.swapRequests.map((r) => (r.id === id ? { ...r, status } : r)),
-          }),
-          () => api.decideSwap(id, status)
-        ),
+      // Takes the whole request, not just its id: approving one moves the shift
+      // between two guards, so the roster has to be updated alongside the status.
+      decideSwap: (swap, status) =>
+        run(async () => {
+          await api.decideSwap(swap, status);
+          await refresh();
+        }),
 
       createTask: (task) =>
         run(async () => {
           await api.createTask(task, dataRef.current.team?.code);
+          await refresh();
+        }),
+
+      editTask: (id, task) =>
+        run(async () => {
+          await api.updateTask(id, { ...task, full: true });
           await refresh();
         }),
 
@@ -449,12 +621,13 @@ export function useGuardian() {
         ),
 
       deleteTask: (id) =>
-        optimistic(
+        deferred(
+          "המשימה נמחקה",
           (d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== id) }),
           () => api.deleteTask(id)
         ),
     }),
-    [run, optimistic, refresh]
+    [run, optimistic, deferred, refresh]
   );
 
   const clearError = useCallback(() => setError(null), []);
@@ -476,5 +649,8 @@ export function useGuardian() {
     refresh,
     actions,
     clearError,
+    pending,
+    undo,
+    offline,
   };
 }
