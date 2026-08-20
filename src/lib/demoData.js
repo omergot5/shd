@@ -57,8 +57,41 @@ const STATUS = { a: "available", u: "unavailable", m: "maybe" };
 export async function seedDemoTeam({ teamCode, existingGuards = [], existingShifts = [] }) {
   const dates = weekByOffset(1);
 
+  // מה שכבר יושב בצוות נקרא **מכאן**, ולא רק ממה שהקורא מסר.
+  //
+  // `gs_create_team` אידמפוטנטית בכוונה: משתמש שכבר יש לו פרופיל מקבל בחזרה
+  // את הצוות הקיים שלו במקום צוות חדש. לכן "פתח הדגמה" בפעם השנייה הגיע
+  // לכאן עם צוות מלא ועם `existingGuards: []`, ניסה להכניס שוב את אותם שישה
+  // שומרים, ונפל על `gs_profiles_one_name_per_team`. ההבטחה שבתיעוד למעלה
+  // ("safe to re-run") הייתה תלויה בכך שכל קורא יזכור למסור את המצב — וזו
+  // הבטחה שאי אפשר לקיים. עכשיו היא נכונה מעצם המבנה.
+  const [rosterRes, weekRes] = await Promise.all([
+    // `role = 'guard'` ו-`order` שניהם נדרשים ולא קוסמטיים: פרופיל המנהל
+    // היה נספר כשומר ומזיז את כל אינדקסי `PATTERN` באחד, וסדר שאינו מובטח
+    // היה נותן דפוס זמינות אחר בכל הרצה — בדיוק הדבר שהמוצר מבטיח שלא קורה.
+    supabase
+      .from("gs_profiles")
+      .select("id, full_name")
+      .eq("team_code", teamCode)
+      .eq("role", "guard")
+      .order("created_at"),
+    supabase
+      .from("gs_shifts")
+      .select("*, gs_assignments(guard_id, source, score, reason)")
+      .eq("team_code", teamCode)
+      .in("date", dates),
+  ]);
+  if (rosterRes.error) throw new Error(`קריאת הצוות נכשלה: ${rosterRes.error.message}`);
+  if (weekRes.error) throw new Error(`קריאת השבוע נכשלה: ${weekRes.error.message}`);
+
+  const knownGuards = mergeById(
+    existingGuards.map((g) => ({ id: g.id, name: g.name })),
+    (rosterRes.data || []).map((r) => ({ id: r.id, name: r.full_name }))
+  );
+  const knownShifts = mergeById(existingShifts, (weekRes.data || []).map(shiftFromRow));
+
   // ---- guards ----
-  const have = new Set(existingGuards.map((g) => g.name.trim()));
+  const have = new Set(knownGuards.map((g) => g.name.trim()));
   const toAdd = DEMO_GUARDS.filter((g) => !have.has(g.name));
   let guardRows = [];
   if (toAdd.length) {
@@ -73,12 +106,12 @@ export async function seedDemoTeam({ teamCode, existingGuards = [], existingShif
   }
 
   const allGuards = [
-    ...existingGuards.map((g) => ({ id: g.id, full_name: g.name })),
+    ...knownGuards.map((g) => ({ id: g.id, full_name: g.name })),
     ...guardRows.map((r) => ({ id: r.id, full_name: r.full_name })),
   ];
 
   // ---- shifts ----
-  const alreadyCovered = new Set(existingShifts.map((s) => `${s.date}|${s.startTime}`));
+  const alreadyCovered = new Set(knownShifts.map((s) => `${s.date}|${s.startTime}`));
   const shiftPayload = [];
   dates.forEach((date, i) => {
     for (const tpl of [DAY, NIGHT]) {
@@ -107,7 +140,7 @@ export async function seedDemoTeam({ teamCode, existingGuards = [], existingShif
     shiftRows = data || [];
   }
 
-  const shifts = [...existingShifts, ...shiftRows.map(shiftFromRow)];
+  const shifts = [...knownShifts, ...shiftRows.map(shiftFromRow)];
 
   // ---- availability ----
   const byDate = new Map();
@@ -149,4 +182,10 @@ export async function seedDemoTeam({ teamCode, existingGuards = [], existingShif
     availabilityAdded: availRows.length,
     weekStart: dates[0],
   };
+}
+
+/** איחוד לפי מזהה, כשהראשון מנצח. שומר על סדר יציב. */
+function mergeById(primary, extra) {
+  const seen = new Set(primary.map((x) => x.id));
+  return [...primary, ...extra.filter((x) => !seen.has(x.id))];
 }
