@@ -1,8 +1,8 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { SHIFT_TONES } from "../../design/shiftPalette.js";
 import {
   Alert, Avatar, Badge, Btn, Card, EmptyState, Field, guardColor, IconBtn, Input, Meter, Modal,
-  PageHeader, readableInk, Select, StatCard,
+  PageHeader, readableInk, Select, StatCard, Textarea,
 } from "../ui.jsx";
 import { Dot, Icon } from "../icons.jsx";
 import {
@@ -10,7 +10,9 @@ import {
   toISODate, todayISO, weekByOffset,
 } from "../../lib/dates.js";
 import { availStatus, checkAssignment } from "../../lib/autoAssign.js";
-import { PROFILES, setTermProfile, subscribeTerms, t, termProfile } from "../../lib/terms.js";
+import { PROFILES, subscribeTerms, t, termProfile } from "../../lib/terms.js";
+import { compatIndex, explainConflict, findConflicts } from "../../lib/conflicts.js";
+import { fairnessHint, fairnessPlan } from "../../lib/fairness.js";
 
 /**
  * Whole-week patterns. Two 12-hour shifts is the common security roster, but
@@ -862,6 +864,27 @@ export function AssignView({ guards, shifts, availability, weekDates, actions, b
 
   const dayShifts = shifts.filter((s) => s.date === date);
 
+  /**
+   * ההמלצה: מי צריך לקבל עוד, ומי כבר מעל הממוצע.
+   *
+   * ההיסטוריה היא כל מה שקדם לשבוע שנבנה, והשבוע עצמו נספר בנפרד — כך
+   * שההמלצה יורדת תוך כדי שיבוץ ולא נשארת תלושה ממה שקורה על המסך.
+   */
+  const weekStart = weekDates[0];
+  const weekEnd = weekDates[weekDates.length - 1];
+  const fairness = useMemo(() => {
+    const history = shifts.filter((s) => s.date < weekStart);
+    const planned = shifts.filter((s) => s.date >= weekStart && s.date <= weekEnd);
+    return fairnessPlan({ guards, history, planned, until: weekStart, days: 14 });
+  }, [guards, shifts, weekStart, weekEnd]);
+
+  const hintOf = useMemo(() => {
+    const map = new Map(fairness.rows.map((r) => [r.id, fairnessHint(r)]));
+    return (id) => map.get(id) || null;
+  }, [fairness]);
+
+  const under = fairness.rows.filter((r) => r.needs >= 1);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -893,6 +916,40 @@ export function AssignView({ guards, shifts, availability, weekDates, actions, b
           </button>
         ))}
       </div>
+
+      {/* ---- המלצת האיזון ----
+        * נמדדת על שבועיים אחורה ולא על השבוע שעל המסך: מי שנשא שני שבועות
+        * רצופים נראה מאוזן לגמרי בשבוע השלישי, וזה בדיוק הקיפוח שאף אחד
+        * לא מצליח להצביע עליו. */}
+      {under.length > 0 && (
+        <div className="glass rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+            <Icon name="scale" size={17} className="text-brand" />
+            <h3 className="font-bold text-content text-sm">איזון על פני שבועיים</h3>
+            <span className="text-xs text-muted">
+              ממוצע הצוות: {fairness.avgLoad} נטל
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {under.map((r) => (
+              <span
+                key={r.id}
+                className="flex items-center gap-2 h-9 pr-1.5 pl-3 rounded-xl
+                  bg-brand/10 ring-1 ring-inset ring-brand/25"
+              >
+                <Avatar id={r.id} name={r.name} size={24} />
+                <span className="text-xs font-semibold text-content">{r.name}</span>
+                <span className="text-xs font-bold text-brand" data-numeric>
+                  +{r.needs}
+                </span>
+              </span>
+            ))}
+          </div>
+          <p className="text-[11px] text-faint mt-2">
+            המספר הוא כמה משמרות עוד מגיעות לו כדי להשתוות לצוות. הוא יורד תוך כדי שיבוץ.
+          </p>
+        </div>
+      )}
 
       {dayShifts.length === 0 ? (
         <EmptyState icon="calendar" title="אין משמרות בתאריך הזה" />
@@ -953,8 +1010,32 @@ export function AssignView({ guards, shifts, availability, weekDates, actions, b
                             }`}
                           title={comment ? `הערה: ${comment}` : undefined}
                         >
-                          <div className="flex justify-center mb-1">
+                          <div className="flex justify-center mb-1 relative">
                             <Avatar id={g.id} name={g.name} size={30} />
+                            {/* התג יושב על התמונה ולא בשורה נפרדת: הרשת
+                              * צפופה, ושורה רביעית הייתה מרסקת אותה. */}
+                            {(() => {
+                              const h = hintOf(g.id);
+                              if (!h) return null;
+                              return (
+                                <span
+                                  className={`absolute -top-1 -left-1.5 min-w-[18px] h-[18px] px-1
+                                    rounded-full text-[10px] font-bold flex items-center justify-center
+                                    ring-2 ring-surface ${
+                                      h.level === "under"
+                                        ? "bg-brand text-on-brand"
+                                        : "bg-warn text-on-brand"
+                                    }`}
+                                  title={h.text}
+                                  data-numeric
+                                >
+                                  {/* מספר ולא סימן קריאה: "!" אומר שמשהו לא
+                                    * בסדר, ולא כמה — ומנהל צריך לדעת כמה. */}
+                                  {h.level === "under" ? "+" : "−"}
+                                  {Math.abs(fairness.rows.find((r) => r.id === g.id)?.needs || 0)}
+                                </span>
+                              );
+                            })()}
                           </div>
                           <div className="text-[11px] font-semibold text-content truncate">
                             {g.name.split(" ")[0]}
@@ -1290,14 +1371,20 @@ const People = ({ ids, guards, size = 22, max = 4 }) => {
   );
 };
 
-export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
+export function TaskMgmt({
+  guards, tasks, weekDates, actions, busy,
+  templates = [], compatibility = [], mode = "civil",
+}) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [openFolder, setOpenFolder] = useState(null); // null = הכול
+  const [picked, setPicked] = useState([]); // מפתחות של תבנית+עמדה
+  const [override, setOverride] = useState(false);
 
   const blank = {
     title: "", description: "", category: UNFILED, assignees: [],
     priority: "medium", startDate: weekDates[0], dueDate: weekDates[6] || weekDates[0],
+    overrideNote: "",
   };
   const [form, setForm] = useState(blank);
   const field = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -1313,6 +1400,7 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
   const openNew = () => {
     setForm({ ...blank, category: openFolder || UNFILED });
     setEditing(null);
+    setOverride(false);
     setShowForm(true);
   };
 
@@ -1321,22 +1409,77 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
       title: task.title, description: task.description, category: task.category || UNFILED,
       assignees: task.assignees || [], priority: task.priority,
       startDate: task.startDate || "", dueDate: task.dueDate || "",
+      overrideNote: task.overrideNote || "",
     });
     setEditing(task.id);
+    setOverride(Boolean(task.overrideNote));
     setShowForm(true);
   };
 
+  // ---- מטריצת ההתנגשויות ----
+  const compat = useMemo(() => compatIndex(compatibility), [compatibility]);
+  const conflicts = useMemo(
+    () =>
+      findConflicts({
+        candidate: { ...form, id: editing },
+        assignees: form.assignees,
+        tasks,
+        compat,
+      }),
+    [form, editing, tasks, compat]
+  );
+  const nameOf = (id) => guards.find((g) => g.id === id)?.name || "מישהו";
+  // חסימה היא ברירת המחדל; עקיפה נפתחת רק אחרי שנכתבה סיבה. הערה ריקה
+  // הופכת את המתג לכפתור "המשך" — וזה בדיוק מה שהוא לא אמור להיות.
+  const blocked = conflicts.length > 0 && (!override || !form.overrideNote.trim());
+
   const save = async () => {
-    if (!form.title.trim()) return;
+    if (!form.title.trim() || blocked) return;
     // חלון הפוך הוא שגיאת הקלדה, לא כוונה — מיישרים אותו במקום לחסום.
     const clean =
       form.startDate && form.dueDate && form.startDate > form.dueDate
         ? { ...form, startDate: form.dueDate, dueDate: form.startDate }
         : form;
-    if (editing) await actions.editTask(editing, clean);
-    else await actions.createTask(clean);
+    // ההצדקה שייכת להתנגשות. אין התנגשות — אין מה להצדיק, והשדה מתנקה
+    // כדי שלא תישאר בשורה סיבה לדבר שכבר לא קורה.
+    const withNote = { ...clean, overrideNote: conflicts.length ? clean.overrideNote : "" };
+    if (editing) await actions.editTask(editing, withNote);
+    else await actions.createTask(withNote);
     setShowForm(false);
     setEditing(null);
+  };
+
+  /**
+   * תבנית הופכת למשימות.
+   *
+   * תבנית עם עמדות מייצרת משימה נפרדת לכל עמדה שנבחרה, כי "עמדות" היא לא
+   * משימה אחת שלושה אנשים עושים — הן שלוש משימות שכל אחת מהן מאוישת בנפרד.
+   */
+  const templateKey = (tpl, pos) => `${tpl.id}|${pos || ""}`;
+
+  // תבנית של הפרופיל הנוכחי, או כזו שסומנה כמתאימה לשניהם.
+  const visibleTemplates = templates.filter((tpl) => tpl.mode === mode || tpl.mode === "any");
+
+  const applyTemplates = async () => {
+    const rows = [];
+    for (const tpl of templates) {
+      const slots = tpl.positions.length ? tpl.positions : [null];
+      for (const pos of slots) {
+        if (!picked.includes(templateKey(tpl, pos))) continue;
+        rows.push({
+          title: pos ? `${tpl.title} — ${pos}` : tpl.title,
+          description: "",
+          category: tpl.category,
+          assignees: [],
+          priority: tpl.priority,
+          startDate: weekDates[0],
+          dueDate: weekDates[6] || weekDates[0],
+        });
+      }
+    }
+    if (!rows.length) return;
+    await actions.createTasks(rows);
+    setPicked([]);
   };
 
   /**
@@ -1443,6 +1586,59 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
         }
       />
 
+      {/* ---- תבניות. רק כשיש מה להציע — שורה ריקה היא רעש ---- */}
+      {visibleTemplates.length > 0 && (
+        <div className="glass rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Icon name="sparkles" size={17} className="text-brand" />
+            <h2 className="font-bold text-content text-sm">תבניות מוכנות</h2>
+            <p className="text-xs text-muted">
+              בחר מה נדרש השבוע — כל בחירה נפתחת כמשימה בתיקייה שלה
+            </p>
+            <div className="mr-auto">
+              <Btn
+                size="sm"
+                icon="plus"
+                onClick={applyTemplates}
+                loading={busy}
+                disabled={!picked.length}
+              >
+                {picked.length ? `צור ${picked.length}` : "צור"}
+              </Btn>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {visibleTemplates.flatMap((tpl) => {
+              const slots = tpl.positions.length ? tpl.positions : [null];
+              return slots.map((pos) => {
+                const key = templateKey(tpl, pos);
+                const on = picked.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      setPicked((p) => (on ? p.filter((k) => k !== key) : [...p, key]))
+                    }
+                    className={`flex items-center gap-2 h-10 px-3 rounded-xl text-sm font-semibold
+                      cursor-pointer ring-1 ring-inset transition-colors duration-200 ${
+                        on
+                          ? "bg-brand text-on-brand ring-brand"
+                          : "bg-surface-sunken ring-hairline text-muted hover:text-content"
+                      }`}
+                  >
+                    <Icon name={on ? "check" : tpl.icon} size={15} />
+                    {pos ? `${tpl.title} · ${pos}` : tpl.title}
+                  </button>
+                );
+              });
+            })}
+          </div>
+        </div>
+      )}
+
       {tasks.length === 0 ? (
         <EmptyState
           icon="clipboard"
@@ -1539,8 +1735,13 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
         title={editing ? "עריכת משימה" : "משימה חדשה"}
         footer={
           <>
-            <Btn onClick={save} loading={busy} disabled={!form.title.trim()} className="flex-1">
-              שמור
+            <Btn
+              onClick={save}
+              loading={busy}
+              disabled={!form.title.trim() || blocked}
+              className="flex-1"
+            >
+              {blocked ? "יש התנגשות" : "שמור"}
             </Btn>
             <Btn variant="secondary" onClick={() => setShowForm(false)}>
               ביטול
@@ -1630,6 +1831,59 @@ export function TaskMgmt({ guards, tasks, weekDates, actions, busy }) {
               })}
             </div>
           </Field>
+
+          {/* ---- התנגשות ----
+            * מופיע מתחת לבוחר האנשים ולא בראש הטופס, כי זה המקום שבו נוצרה
+            * הבעיה — ומנהל שקורא אזהרה רחוק מהסיבה שלה לא יודע מה לשנות. */}
+          {conflicts.length > 0 && (
+            <div className="rounded-2xl ring-1 ring-inset ring-warn/40 bg-warn/10 p-3.5 space-y-3">
+              <div className="flex items-start gap-2">
+                <Icon name="alert" size={17} className="text-warn flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-bold text-content text-sm">
+                    {conflicts.length === 1
+                      ? "שיבוץ אחד מתנגש"
+                      : `${conflicts.length} שיבוצים מתנגשים`}
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {conflicts.map((c) => (
+                      <li key={`${c.personId}-${c.taskId}`} className="text-xs text-muted">
+                        {explainConflict(c, nameOf)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={override}
+                  onChange={(e) => setOverride(e.target.checked)}
+                  className="w-4 h-4 accent-[rgb(var(--warn))] cursor-pointer"
+                />
+                <span className="text-sm font-semibold text-content">
+                  אני יודע — שבץ בכל זאת
+                </span>
+              </label>
+
+              {override && (
+                <Field
+                  label="למה"
+                  hint="חובה. ההסבר נשמר, ומגיע גם לאנשים המשובצים"
+                  error={form.overrideNote.trim() ? undefined : "בלי סיבה אי אפשר לעקוף"}
+                >
+                  <Textarea
+                    rows={2}
+                    value={form.overrideNote}
+                    onChange={field("overrideNote")}
+                    placeholder="המטבח סגור באותן שעות, אז אין חפיפה בפועל"
+                    autoFocus
+                  />
+                </Field>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </div>
@@ -1713,8 +1967,11 @@ function DeadlineSettings({ team, actions, busy }) {
  * הבחירה נשמרת מקומית ולא בשרת: היא מאפיין של מי שמסתכל, לא של הצוות, ואין
  * סיבה שהחלפה אצל אחד תשנה את המסך של אחר. חוץ מזה היא לא דורשת מיגרציה.
  */
-function ProfilePicker() {
-  const active = useSyncExternalStore(subscribeTerms, termProfile, termProfile);
+function ProfilePicker({ team, actions, busy }) {
+  // מקור האמת הוא הצוות. `termProfile` נשאר כגיבוי לרגע שבין טעינת המסך
+  // לטעינת הצוות, כדי שהכרטיס לא יהבהב על ברירת מחדל שגויה.
+  const fallback = useSyncExternalStore(subscribeTerms, termProfile, termProfile);
+  const active = team?.mode || fallback;
   return (
     <Card>
       <h2 className="font-bold text-content mb-1 flex items-center gap-2">
@@ -1722,8 +1979,11 @@ function ProfilePicker() {
         תחום הפעילות
       </h2>
       <p className="text-sm text-muted mb-4">
-        משנה את המילים בממשק כך שיתאימו למקום שבו אתה עובד. השלבים והחישובים
-        זהים בכל הפרופילים.
+        משנה את המילים בממשק כך שיתאימו למקום שבו אתה עובד, ואת תבניות המשימות
+        שמוצעות לך. השלבים והחישובים זהים בכל הפרופילים.
+        <span className="block mt-1 text-xs text-faint">
+          הבחירה חלה על כל הצוות — לא רק על המכשיר הזה.
+        </span>
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         {PROFILES.map((p) => {
@@ -1731,7 +1991,8 @@ function ProfilePicker() {
           return (
             <button
               key={p.id}
-              onClick={() => setTermProfile(p.id)}
+              onClick={() => actions.updateTeamSettings({ mode: p.id })}
+              disabled={busy}
               aria-pressed={on}
               className={`text-right rounded-2xl p-4 ring-1 ring-inset cursor-pointer
                 transition-[background,box-shadow] duration-200 flex items-start gap-3 ${
@@ -1790,7 +2051,7 @@ export function TeamView({ user, team, guards, actions, busy, onSeedDemo }) {
     <div className="space-y-6">
       <PageHeader title={t("nav.team")} subtitle={team?.name || "נהל שומרים ושתף את קוד הצוות"} />
 
-      <ProfilePicker />
+      <ProfilePicker team={team} actions={actions} busy={busy} />
 
       <DeadlineSettings team={team} actions={actions} busy={busy} />
 

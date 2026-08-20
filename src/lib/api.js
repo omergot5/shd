@@ -89,6 +89,7 @@ export const taskFromRow = (row) => ({
   priority: row.priority,
   startDate: row.start_date || null,
   dueDate: row.due_date,
+  overrideNote: row.override_note || "",
 });
 
 // ---------- auth ----------
@@ -235,7 +236,10 @@ function translateAuthError(error) {
 // ---------- team data ----------
 
 export async function loadTeam(teamCode) {
-  const [teamRes, profilesRes, shiftsRes, availRes, swapsRes, tasksRes] = await Promise.all([
+  // התבניות ומטריצת ההתנגשויות נשלפות יחד עם השאר ולא בבקשה נפרדת: שתיהן
+  // עשרות שורות לכל היותר, ושתיהן נדרשות ברגע שנפתח מסך המשימות. בקשה
+  // שנייה הייתה קונה כלום ומשלמת בהבהוב.
+  const [teamRes, profilesRes, shiftsRes, availRes, swapsRes, tasksRes, tplRes, compatRes] = await Promise.all([
     supabase.from("gs_teams").select("*").eq("code", teamCode).maybeSingle(),
     supabase.from("gs_profiles").select("*").eq("team_code", teamCode).order("created_at"),
     supabase.from("gs_shifts").select("*, gs_assignments(guard_id, source, score, reason)")
@@ -243,6 +247,10 @@ export async function loadTeam(teamCode) {
     supabase.from("gs_availability").select("*"),
     supabase.from("gs_swap_requests").select("*").eq("team_code", teamCode).order("created_at", { ascending: false }),
     supabase.from("gs_tasks").select("*").eq("team_code", teamCode).order("created_at", { ascending: false }),
+    supabase.from("gs_task_templates").select("*")
+      .or(`team_code.is.null,team_code.eq.${teamCode}`).order("sort"),
+    supabase.from("gs_role_compatibility").select("*")
+      .or(`team_code.is.null,team_code.eq.${teamCode}`),
   ]);
 
   const firstError = [teamRes, profilesRes, shiftsRes, availRes, swapsRes, tasksRes].find((r) => r.error)?.error;
@@ -259,6 +267,9 @@ export async function loadTeam(teamCode) {
           deadlineDays: teamRes.data.avail_deadline_days ?? 3,
           deadlineHour: teamRes.data.avail_deadline_hour ?? 14,
           reminders: teamRes.data.avail_reminders !== false,
+          // תחום הפעילות חי על הצוות ולא בדפדפן: אחרת כל אדם היה רואה
+          // מילון מונחים אחר, ושיחה על "תורנות" מול "משמרת" הופכת לבלבול.
+          mode: teamRes.data.mode === "army" ? "army" : "civil",
         }
       : null,
     members: profiles,
@@ -268,8 +279,32 @@ export async function loadTeam(teamCode) {
     availability: availabilityFromRows(availRes.data),
     swapRequests: (swapsRes.data || []).map(swapFromRow),
     tasks: (tasksRes.data || []).map(taskFromRow),
+    // שתי אלה מכוונות **לא** להיכלל ב-`firstError`. הן העשרה, לא ליבה:
+    // בסיס נתונים שהמיגרציה טרם רצה עליו יחזיר שגיאה כאן, והאפליקציה
+    // צריכה להמשיך לעבוד בלי תבניות — לא ליפול על מסך שגיאה.
+    taskTemplates: (tplRes.data || []).map(templateFromRow),
+    compatibility: (compatRes.data || []).map(compatFromRow),
   };
 }
+
+const templateFromRow = (row) => ({
+  id: row.id,
+  teamCode: row.team_code || null,
+  mode: row.mode || "civil",
+  title: row.title,
+  category: row.category,
+  icon: row.icon || "clipboard",
+  positions: Array.isArray(row.positions) ? row.positions : [],
+  priority: row.priority || "medium",
+});
+
+const compatFromRow = (row) => ({
+  id: row.id,
+  a: row.a,
+  b: row.b,
+  rule: row.rule,
+  note: row.note || "",
+});
 
 // ---------- shifts ----------
 
@@ -392,13 +427,26 @@ export async function addGuard({ name, phone, teamCode }) {
   return profileFromRow(data);
 }
 
-export async function updateTeamSettings(teamCode, { deadlineDays, deadlineHour, reminders }) {
+export async function updateTeamSettings(teamCode, { deadlineDays, deadlineHour, reminders, mode }) {
   const patch = {};
   if (deadlineDays !== undefined) patch.avail_deadline_days = deadlineDays;
   if (deadlineHour !== undefined) patch.avail_deadline_hour = deadlineHour;
   if (reminders !== undefined) patch.avail_reminders = reminders;
-  const { error } = await supabase.from("gs_teams").update(patch).eq("code", teamCode);
+  if (mode !== undefined) patch.mode = mode === "army" ? "army" : "civil";
+
+  // `.select()` ולא עדכון עיוור: כש-RLS מסננת את כל השורות, Supabase מחזירה
+  // `error: null` ומערך ריק — כלומר "הצלחה" שלא כתבה כלום. בלי הבדיקה הזאת
+  // המסך היה מראה את הבחירה החדשה, הרענון הבא היה מחזיר את הישנה, ואף אחד
+  // לא היה יודע למה. שורה שחזרה = שורה שנכתבה.
+  const { data, error } = await supabase
+    .from("gs_teams")
+    .update(patch)
+    .eq("code", teamCode)
+    .select("code");
   if (error) throw new Error(error.message);
+  if (!data?.length) {
+    throw new Error("אין לך הרשאה לשנות את הגדרות הצוות — התחבר מחדש ונסה שוב");
+  }
 }
 
 export async function setGuardExempt(profileId, exempt) {
@@ -470,6 +518,9 @@ const taskColumns = (task) => ({
   priority: task.priority || "medium",
   start_date: task.startDate || null,
   due_date: task.dueDate || null,
+  // עקיפה מודעת. `null` מפורש ולא השמטה: מנהל שהסיר את ההתנגשות בעריכה
+  // צריך שההצדקה הישנה תימחק איתה, אחרת נשאר בשורה תירוץ לדבר שכבר לא קורה.
+  override_note: task.overrideNote || null,
 });
 
 const asTaskError = (error) => {
@@ -489,6 +540,23 @@ export async function createTask(task, teamCode) {
     .single();
   if (error) throw asTaskError(error);
   return taskFromRow(data);
+}
+
+/**
+ * כמה משימות בבת אחת — מה שתבנית מייצרת.
+ *
+ * הכנסה אחת ולא לולאה של הכנסות: תבנית "עמדות" יוצרת שלוש משימות, ומנהל
+ * שרואה שתיים מהן נוצרות והשלישית נכשלת נשאר עם מצב חצי. כאן או שהכול
+ * נכנס או ששום דבר לא נכנס.
+ */
+export async function createTasks(tasks, teamCode) {
+  if (!tasks.length) return [];
+  const { data, error } = await supabase
+    .from("gs_tasks")
+    .insert(tasks.map((t) => ({ team_code: teamCode, ...taskColumns(t) })))
+    .select();
+  if (error) throw asTaskError(error);
+  return (data || []).map(taskFromRow);
 }
 
 export async function updateTask(id, patch) {

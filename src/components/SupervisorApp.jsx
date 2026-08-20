@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Alert, Avatar, Btn, CardButton, IconBtn, Modal, Spinner, UndoBar } from "./ui.jsx";
+import { Alert, Avatar, Btn, CardButton, IconBtn, Modal, Segmented, Spinner, UndoBar } from "./ui.jsx";
 import { Icon } from "./icons.jsx";
 import { LogoMark } from "./Logo.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 import { SupDashboard, SwapMgmt, TaskMgmt, TeamView } from "./supervisor/views.jsx";
 import WeekFlow, { STEP_OF } from "./supervisor/WeekFlow.jsx";
 import CalendarView from "./supervisor/CalendarView.jsx";
+import WeekCalendar from "./supervisor/WeekCalendar.jsx";
 import { rangeLabelHe, weekByOffset } from "../lib/dates.js";
 import { subscribeTerms, t, termProfile } from "../lib/terms.js";
 
@@ -70,6 +71,7 @@ const WeekNav = ({ offset, setOffset, dates }) => (
 export default function SupervisorApp({ state }) {
   const {
     user, team, guards, shifts, availability, swapRequests, tasks,
+    taskTemplates, compatibility,
     actions, busy, error, clearError, logout, pending, undo, offline,
   } = state;
 
@@ -77,6 +79,7 @@ export default function SupervisorApp({ state }) {
   // לסדר את השבוע — הוא לא בא לקרוא סטטיסטיקה על עצמו.
   const [view, setView] = useState("week");
   const [weekStep, setWeekStep] = useState(0);
+  const [calMode, setCalMode] = useState("week");
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   // Default to next week — the week a supervisor actually plans.
@@ -160,7 +163,30 @@ export default function SupervisorApp({ state }) {
 
   const views = {
     week: <WeekFlow {...common} step={weekStep} setStep={setWeekStep} />,
-    calendar: <CalendarView shifts={shifts} guards={guards} onNavigate={go} />,
+    calendar: (
+      // שבוע הוא ברירת המחדל, לא חודש: מי שנכנס ליומן בא לראות מה חסר
+      // *עכשיו*, וחור נראה רק על ציר שעות.
+      <div className="space-y-4">
+        <Segmented
+          value={calMode}
+          onChange={setCalMode}
+          options={[
+            { value: "week", label: "שבוע", icon: "calendar" },
+            { value: "month", label: "חודש", icon: "grid" },
+          ]}
+        />
+        {calMode === "week" ? (
+          <WeekCalendar
+            dates={weekDates}
+            shifts={shifts}
+            guards={guards}
+            onOpenShift={() => go("week")}
+          />
+        ) : (
+          <CalendarView shifts={shifts} guards={guards} onNavigate={go} />
+        )}
+      </div>
+    ),
     more: (
       <div className="grid gap-3 sm:grid-cols-2">
         {MORE.map((m) => (
@@ -202,7 +228,16 @@ export default function SupervisorApp({ state }) {
       />
     ),
     tasks: (
-      <TaskMgmt guards={guards} tasks={tasks} weekDates={weekDates} actions={actions} busy={busy} />
+      <TaskMgmt
+        guards={guards}
+        tasks={tasks}
+        weekDates={weekDates}
+        actions={actions}
+        busy={busy}
+        templates={taskTemplates}
+        compatibility={compatibility}
+        mode={team?.mode || "civil"}
+      />
     ),
     analytics: (
       <Suspense

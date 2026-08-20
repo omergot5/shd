@@ -138,3 +138,53 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   הדפסה.
+
+   "ייצוא ל-PDF" נפתר כאן ולא בספריית PDF: הדפדפן כבר יודע לייצר PDF
+   וקטורי מדף, והוא עושה את זה טוב יותר מכל ציור מחדש על קנבס — הטקסט
+   נשאר טקסט שאפשר לחפש בו, והפריסה היא בדיוק זו שנבדקה על המסך.
+
+   הכלל היחיד שצריך אכיפה הוא צבע: דפדפנים משמיטים רקעים בהדפסה כברירת
+   מחדל, וכאן הרקע *הוא* המידע — הפסים האלכסוניים מסמנים חור.
+   ============================================================ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-sheet {
+    position: absolute;
+    top: 0;
+    inset-inline: 0;
+    width: 100%;
+    box-shadow: none !important;
+    border: 0 !important;
+    background: #fff !important;
+  }
+
+  /* הגלילה האופקית קיימת בשביל מסך צר. על נייר היא רק חותכת ימים. */
+  .print-sheet [class*="overflow-x-auto"] {
+    overflow: visible !important;
+  }
+  .print-sheet [class*="min-w-"] {
+    min-width: 0 !important;
+  }
+}

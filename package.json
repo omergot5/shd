@@ -8,7 +8,7 @@
     "dev:auto": "vite",
     "build": "vite build",
     "preview": "vite preview --port 3000",
-    "test": "node scripts/verify-scheduler.mjs",
+    "test": "node scripts/verify-scheduler.mjs && node scripts/verify-planning.mjs",
     "test:backend": "node scripts/verify-backend.mjs"
   },
   "dependencies": {

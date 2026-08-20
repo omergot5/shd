@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient.js";
 import * as api from "../lib/api.js";
 import { seedDemoTeam } from "../lib/demoData.js";
+import { setTermProfile } from "../lib/terms.js";
 
 const EMPTY = {
   team: null,
@@ -31,6 +32,8 @@ const EMPTY = {
   availability: {},
   swapRequests: [],
   tasks: [],
+  taskTemplates: [],
+  compatibility: [],
 };
 
 /**
@@ -76,6 +79,13 @@ export function useGuardian() {
   const [status, setStatus] = useState("booting");
   const [user, setUser] = useState(null); // the app profile, not the auth user
   const [data, setData] = useState(EMPTY);
+
+  // תחום הפעילות הוא תכונה של הצוות, ולכן הוא מוחל מכאן ולא מהמסך שמשנה
+  // אותו: כך הוא נכון גם בטעינה ראשונה, גם מהמטמון הלא-מקוון, וגם כששותף
+  // אחר החליף אותו וההודעה הגיעה ב-realtime.
+  useEffect(() => {
+    setTermProfile(data.team?.mode || "civil");
+  }, [data.team?.mode]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   // "הנתונים על המסך הם צילום ישן". מוצג, ולא מוסתר: משתמש שרואה סידור בלי
@@ -605,6 +615,12 @@ export function useGuardian() {
       createTask: (task) =>
         run(async () => {
           await api.createTask(task, dataRef.current.team?.code);
+          await refresh();
+        }),
+
+      createTasks: (list) =>
+        run(async () => {
+          await api.createTasks(list, dataRef.current.team?.code);
           await refresh();
         }),
 
