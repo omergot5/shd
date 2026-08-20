@@ -1,34 +1,50 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Alert, Avatar, Btn, IconBtn, Modal, Spinner } from "./ui.jsx";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Alert, Avatar, Btn, CardButton, IconBtn, Modal, Spinner, UndoBar } from "./ui.jsx";
 import { Icon } from "./icons.jsx";
 import { LogoMark } from "./Logo.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
-import SmartAssign from "./SmartAssign.jsx";
-import {
-  SupDashboard, ShiftMgmt, AvailView, AssignView, ScheduleMgmt, SwapMgmt, TaskMgmt, TeamView,
-} from "./supervisor/views.jsx";
+import { SupDashboard, SwapMgmt, TaskMgmt, TeamView } from "./supervisor/views.jsx";
+import WeekFlow, { STEP_OF } from "./supervisor/WeekFlow.jsx";
 import CalendarView from "./supervisor/CalendarView.jsx";
 import { rangeLabelHe, weekByOffset } from "../lib/dates.js";
+import { subscribeTerms, t, termProfile } from "../lib/terms.js";
 
 // Charts pull in recharts (~400KB). Nobody sees them on first load, so they
 // are split out and fetched only when the reports tab is opened.
 const AnalyticsDash = lazy(() => import("./supervisor/Analytics.jsx"));
 
-const NAV = [
-  { id: "dashboard", label: "לוח בקרה", icon: "chart", group: "ראשי" },
-  { id: "calendar", label: "יומן", icon: "grid", group: "ראשי" },
-  { id: "shifts", label: "ניהול משמרות", icon: "calendar", group: "תכנון", week: true },
-  { id: "availability", label: "זמינות שומרים", icon: "check-circle", group: "תכנון", week: true },
-  { id: "smart", label: "שיבוץ חכם", icon: "zap", group: "תכנון", week: true, highlight: true },
-  { id: "assignment", label: "שיבוץ ידני", icon: "users", group: "תכנון", week: true },
-  { id: "schedule", label: "פרסום סידור", icon: "clipboard", group: "תכנון", week: true },
-  { id: "swaps", label: "בקשות החלפה", icon: "swap", group: "ניהול", badge: true },
-  { id: "tasks", label: "משימות", icon: "pencil", group: "ניהול" },
-  { id: "analytics", label: "דוחות", icon: "trending", group: "ניהול" },
-  { id: "team", label: "הצוות שלי", icon: "key", group: "ניהול" },
+/**
+ * ארבעה פריטים. לא יותר.
+ *
+ * קודם היו כאן אחד־עשר, מחולקים לשלוש קבוצות — וזה בדיוק גודל התפריט שבו
+ * משתמש חדש מפסיק לקרוא ומתחיל לנחש. חמישה מהם (משמרות, זמינות, שיבוץ חכם,
+ * שיבוץ ידני, פרסום) היו בעצם *שלבים של אותה משימה אחת*, ולכן הם התכנסו
+ * ל"השבוע". השאר, שאף אחד לא נוגע בהם באמצע בניית סידור, ירדו ל"עוד".
+ */
+/* פונקציות ולא קבועים: `t()` שנקרא ברמת המודול מקבע את המילה הראשונה,
+ * והחלפת פרופיל לא הייתה משנה כלום על המסך. */
+const navItems = () => [
+  { id: "week", label: "השבוע", icon: "calendar", week: true },
+  { id: "calendar", label: t("nav.calendar"), icon: "grid" },
+  { id: "team", label: t("nav.team"), icon: "users" },
+  { id: "more", label: "עוד", icon: "menu", badge: true },
 ];
 
-const GROUPS = ["ראשי", "תכנון", "ניהול"];
+/** היעדים המשניים. נכנסים אליהם מכוונה, לא בטעות בדרך למשהו אחר. */
+const moreItems = () => [
+  { id: "dashboard", label: t("nav.dashboard"), icon: "chart", hint: "מצב הצוות במבט אחד" },
+  { id: "swaps", label: t("nav.swaps"), icon: "swap", hint: "מי ביקש להתחלף ועם מי", badge: true },
+  { id: "tasks", label: t("nav.tasks"), icon: "pencil", hint: "משימות שלא קשורות למשמרת" },
+  { id: "analytics", label: t("nav.analytics"), icon: "trending", hint: "עומסים, לילות והוגנות" },
+];
+
+const titles = (more) => ({
+  week: "השבוע",
+  more: "עוד",
+  ...Object.fromEntries(more.map((m) => [m.id, m.label])),
+  calendar: t("nav.calendar"),
+  team: t("nav.team"),
+});
 
 const WeekNav = ({ offset, setOffset, dates }) => (
   <div className="glass flex items-center gap-1 p-1 rounded-xl">
@@ -54,23 +70,51 @@ const WeekNav = ({ offset, setOffset, dates }) => (
 export default function SupervisorApp({ state }) {
   const {
     user, team, guards, shifts, availability, swapRequests, tasks,
-    actions, busy, error, clearError, logout,
+    actions, busy, error, clearError, logout, pending, undo, offline,
   } = state;
 
-  const [view, setView] = useState("dashboard");
+  // ברירת המחדל היא העבודה עצמה, לא לוח בקרה. אחמ"ש שנכנס לאפליקציה בא
+  // לסדר את השבוע — הוא לא בא לקרוא סטטיסטיקה על עצמו.
+  const [view, setView] = useState("week");
+  const [weekStep, setWeekStep] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   // Default to next week — the week a supervisor actually plans.
   const [weekOffset, setWeekOffset] = useState(1);
 
+  // החלפת פרופיל מרעננת את כל התוויות. בלי המנוי הזה השמות היו קופאים
+  // על אלה שנקראו בטעינת המודול.
+  const profile = useSyncExternalStore(subscribeTerms, termProfile, termProfile);
+  const NAV = useMemo(() => navItems(), [profile]);
+  const MORE = useMemo(() => moreItems(), [profile]);
+  const TITLES = useMemo(() => titles(MORE), [MORE]);
+
   const weekDates = useMemo(() => weekByOffset(weekOffset), [weekOffset]);
   const pendingSwaps = swapRequests.filter((r) => r.status === "pending").length;
   const current = NAV.find((n) => n.id === view);
+  const isWeek = view === "week";
 
+  /**
+   * ניווט אחד לכל האפליקציה. מזהי היעדים הישנים ("smart", "schedule"…) עדיין
+   * מגיעים מכפתורים בתוך המסכים, והם נפתרים כאן לשלב בתוך "השבוע" — כך אף
+   * קריאה קיימת לא נשברה כשחמישה מסכים הפכו לאחד.
+   */
   const go = (id) => {
-    setView(id);
+    if (id in STEP_OF) {
+      setWeekStep(STEP_OF[id]);
+      setView("week");
+    } else {
+      setView(id);
+    }
     setMenuOpen(false);
   };
+
+  // כל מעבר — בין מסכים ובין שלבים — מתחיל בראש התוכן. בלי זה, מעבר משלב
+  // ארוך לשלב קצר נוחת באמצע המסך החדש, ונראה כאילו חצי ממנו חסר.
+  const scroller = useRef(null);
+  useEffect(() => {
+    scroller.current?.scrollTo({ top: 0 });
+  }, [view, weekStep]);
 
   // Escape closes the mobile drawer. Without it the only way out is the
   // scrim, which is not reachable from a keyboard.
@@ -115,6 +159,29 @@ export default function SupervisorApp({ state }) {
   const common = { guards, shifts, availability, weekDates, actions, busy, onNavigate: go };
 
   const views = {
+    week: <WeekFlow {...common} step={weekStep} setStep={setWeekStep} />,
+    calendar: <CalendarView shifts={shifts} guards={guards} onNavigate={go} />,
+    more: (
+      <div className="grid gap-3 sm:grid-cols-2">
+        {MORE.map((m) => (
+          <CardButton key={m.id} onClick={() => go(m.id)} className="flex items-center gap-3.5">
+            <span className="w-11 h-11 rounded-xl bg-brand/15 ring-1 ring-inset ring-brand/25 text-brand flex items-center justify-center flex-shrink-0">
+              <Icon name={m.icon} size={20} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-bold text-content">{m.label}</span>
+              <span className="block text-xs text-muted mt-0.5">{m.hint}</span>
+            </span>
+            {m.badge && pendingSwaps > 0 && (
+              <span className="bg-danger text-white text-[11px] font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1.5">
+                {pendingSwaps}
+              </span>
+            )}
+            <Icon name="left" size={17} className="text-faint flex-shrink-0" />
+          </CardButton>
+        ))}
+      </div>
+    ),
     dashboard: (
       <SupDashboard
         {...common}
@@ -124,25 +191,11 @@ export default function SupervisorApp({ state }) {
         onSeedDemo={startDemo}
       />
     ),
-    calendar: <CalendarView shifts={shifts} guards={guards} onNavigate={go} />,
-    shifts: <ShiftMgmt {...common} />,
-    availability: <AvailView {...common} />,
-    smart: (
-      <SmartAssign
-        weekDates={weekDates}
-        shifts={shifts}
-        guards={guards}
-        availability={availability}
-        busy={busy}
-        onApply={(ids, assignments) => actions.applyPlan(ids, assignments)}
-      />
-    ),
-    assignment: <AssignView {...common} />,
-    schedule: <ScheduleMgmt {...common} />,
     swaps: (
       <SwapMgmt
         guards={guards}
         shifts={shifts}
+        availability={availability}
         swapRequests={swapRequests}
         actions={actions}
         busy={busy}
@@ -174,32 +227,50 @@ export default function SupervisorApp({ state }) {
     ),
   };
 
+  // מסך משני נפתח מתוך "עוד", אז הדרך חזרה חייבת להיות גלויה — בלי להסתמך
+  // על כפתור "אחורה" של הדפדפן, שבאפליקציה חד־עמודית פשוט מוציא מהאתר.
+  const secondary = MORE.find((m) => m.id === view);
+
   return (
     <div className="app-canvas flex h-[100dvh] overflow-hidden" dir="rtl">
       {menuOpen && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
           onClick={() => setMenuOpen(false)}
           aria-hidden="true"
         />
       )}
 
+      {/* התפריט נפתח לפי בקשה ונסגר אחריה — גם במסך רחב. סרגל שפתוח תמיד
+        * גוזל שליש מרוחב הקריאה במסך שכולו טבלאות שבועיות, ובעיקר הוא מציג
+        * את הניווט בזמן שהמשתמש כבר בתוך משימה. `inert` כשסגור, אחרת אפשר
+        * להגיע בטאב לכפתורים שנמצאים מחוץ למסך. */}
       <aside
+        {...(menuOpen ? {} : { inert: "" })}
         className={`fixed inset-y-0 right-0 z-50 w-64 glass-raised rounded-none border-y-0 border-r-0
-          flex flex-col transition-transform duration-300 lg:relative lg:translate-x-0 ${
-            menuOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
+          flex flex-col transition-transform duration-300 ${
+            menuOpen ? "translate-x-0" : "translate-x-full"
           }`}
       >
         <div className="p-4 border-b border-hairline">
           <div className="flex items-center gap-3 min-w-0">
             <LogoMark size={34} />
-            <div className="min-w-0">
-              <p className="text-[13px] leading-tight tracking-tight whitespace-nowrap">
-                <span className="font-extrabold text-content">Smart Shift</span>{" "}
-                <span className="font-medium text-muted">Management</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-extrabold tracking-[-0.02em] leading-tight text-content">
+                NexRota
               </p>
               <p className="text-muted text-[11px] truncate">{user.name}</p>
             </div>
+            {/* דרך שנייה לסגור, בתוך הסרגל עצמו. ההמבורגר בכותרת נמצא מחוץ
+              * לשדה הראייה ברגע שהסרגל פתוח, והרקע המעומעם הוא יעד שאי אפשר
+              * להגיע אליו במקלדת. RTL: הסרגל נשלף ימינה, ולכן החץ מצביע ימינה. */}
+            <IconBtn
+              icon="right"
+              label="סגור תפריט"
+              size="sm"
+              className="-ml-1 flex-shrink-0"
+              onClick={() => setMenuOpen(false)}
+            />
           </div>
           <button
             onClick={() => go("team")}
@@ -212,49 +283,32 @@ export default function SupervisorApp({ state }) {
           </button>
         </div>
 
-        <nav aria-label="ניווט ראשי" className="flex-1 p-3 space-y-4 overflow-y-auto">
-          {GROUPS.map((group) => (
-            <div key={group}>
-              <p className="text-faint text-[10px] font-bold uppercase tracking-wider px-3 mb-1.5">
-                {group}
-              </p>
-              <div className="space-y-0.5">
-                {NAV.filter((n) => n.group === group).map((item) => {
-                  const active = view === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => go(item.id)}
-                      aria-current={active ? "page" : undefined}
-                      className={`w-full flex items-center gap-3 px-3 h-11 rounded-xl text-sm font-medium
-                        cursor-pointer transition-colors duration-200 ${
-                          active
-                            ? "bg-brand/15 text-content ring-1 ring-inset ring-brand/30"
-                            : "text-muted hover:text-content hover:bg-surface-hover"
-                        }`}
-                    >
-                      <Icon
-                        name={item.icon}
-                        size={18}
-                        className={active ? "text-brand" : "opacity-80"}
-                      />
-                      <span className="flex-1 text-right">{item.label}</span>
-                      {item.highlight && !active && (
-                        <span className="text-[9px] font-bold bg-accent text-on-accent px-1.5 py-0.5 rounded">
-                          חדש
-                        </span>
-                      )}
-                      {item.badge && pendingSwaps > 0 && (
-                        <span className="bg-danger text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
-                          {pendingSwaps}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+        <nav aria-label="ניווט ראשי" className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {NAV.map((item) => {
+            // מסך משני מדליק את "עוד", כי משם הגיעו אליו.
+            const active = view === item.id || (item.id === "more" && !!secondary);
+            return (
+              <button
+                key={item.id}
+                onClick={() => go(item.id)}
+                aria-current={active ? "page" : undefined}
+                className={`w-full flex items-center gap-3 px-3 h-12 rounded-xl text-sm font-semibold
+                  cursor-pointer transition-colors duration-200 ${
+                    active
+                      ? "bg-brand/15 text-content ring-1 ring-inset ring-brand/30"
+                      : "text-muted hover:text-content hover:bg-surface-hover"
+                  }`}
+              >
+                <Icon name={item.icon} size={19} className={active ? "text-brand" : "opacity-80"} />
+                <span className="flex-1 text-right">{item.label}</span>
+                {item.badge && pendingSwaps > 0 && (
+                  <span className="bg-danger text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                    {pendingSwaps}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="p-3 border-t border-hairline space-y-2">
@@ -273,15 +327,21 @@ export default function SupervisorApp({ state }) {
         <header className="h-14 flex-shrink-0 glass rounded-none border-x-0 border-t-0 flex items-center justify-between gap-3 px-3 lg:px-6 z-30">
           <div className="flex items-center gap-2 min-w-0">
             <IconBtn
-              icon="menu"
-              label="פתח תפריט"
-              className="lg:hidden -mr-2"
-              onClick={() => setMenuOpen(true)}
+              icon={menuOpen ? "x" : "menu"}
+              label={menuOpen ? "סגור תפריט" : "פתח תפריט"}
+              className="-mr-2"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((o) => !o)}
             />
-            <h1 className="font-bold text-content text-base truncate">{current?.label}</h1>
+            {secondary && (
+              <IconBtn icon="right" label="חזרה לעוד" size="sm" onClick={() => go("more")} />
+            )}
+            <h1 className="font-bold text-content text-base truncate">
+              {TITLES[view] || current?.label}
+            </h1>
           </div>
 
-          {current?.week && (
+          {isWeek && (
             <div className="hidden sm:block">
               <WeekNav offset={weekOffset} setOffset={setWeekOffset} dates={weekDates} />
             </div>
@@ -300,9 +360,9 @@ export default function SupervisorApp({ state }) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-3 lg:p-6">
+        <div ref={scroller} className="flex-1 overflow-auto p-3 lg:p-6">
           <div className="max-w-6xl mx-auto space-y-5 pb-10">
-            {current?.week && (
+            {isWeek && (
               <div className="sm:hidden flex justify-center">
                 <WeekNav offset={weekOffset} setOffset={setWeekOffset} dates={weekDates} />
               </div>
@@ -312,10 +372,18 @@ export default function SupervisorApp({ state }) {
                 {error}
               </Alert>
             )}
+            {offline && (
+              <Alert tone="warn" title="אין חיבור — מוצג הסידור האחרון שנטען">
+                אפשר לקרוא הכול. שינויים לא יישמרו עד שהרשת תחזור.
+              </Alert>
+            )}
             {views[view]}
           </div>
         </div>
       </main>
+
+      {/* מחוץ ל-main: הרצועה מרחפת מעל כל מסך, ולא צריכה לדעת מי פתוח. */}
+      <UndoBar key={pending?.label} label={pending?.label} onUndo={undo} />
 
       <Modal open={welcome} onClose={dismissWelcome} title="הצוות שלך מוכן">
         <p className="text-sm text-muted mb-4">
@@ -345,7 +413,7 @@ export default function SupervisorApp({ state }) {
           </Btn>
         </div>
         <p className="text-xs text-faint mt-4 text-center">
-          הקוד תמיד זמין לך בסרגל הצד ובמסך "הצוות שלי"
+          הקוד תמיד זמין לך בסרגל הצד ובמסך "{t("nav.team")}"
         </p>
       </Modal>
     </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   Alert, Avatar, Badge, Btn, Card, EmptyState, Field, guardColor, Input, Meter, Modal, PageHeader,
   readableInk, Segmented, Select,
@@ -7,14 +7,15 @@ import { Icon } from "./icons.jsx";
 import ThemeToggle from "./ThemeToggle.jsx";
 import {
   addDays, availabilityDeadline, countdownHe, dayName, formatDateHe, fromISODate, rangeLabelHe,
-  shortDate, toISODate, todayISO, weekByOffset,
+  shiftInterval, shortDate, toISODate, todayISO, weekByOffset,
 } from "../lib/dates.js";
-import { availStatus } from "../lib/autoAssign.js";
+import { availStatus, checkAssignment, teamAverages } from "../lib/autoAssign.js";
+import { subscribeTerms, t, termProfile } from "../lib/terms.js";
 
-const NAV = [
-  { id: "schedule", label: "הסידור שלי", icon: "calendar" },
-  { id: "availability", label: "הגשת זמינות", icon: "check-circle" },
-  { id: "swaps", label: "החלפות", icon: "swap", badge: true },
+const navItems = () => [
+  { id: "schedule", label: t("guard.nav.schedule"), icon: "calendar" },
+  { id: "availability", label: t("guard.nav.availability"), icon: "check-circle" },
+  { id: "swaps", label: t("guard.nav.swaps"), icon: "swap", badge: true },
 ];
 
 /** Availability as icon + word + colour — never colour alone. */
@@ -37,6 +38,94 @@ const SWAP_STATUS = {
 // MY SCHEDULE
 // ============================================================
 
+/**
+ * הכרטיס הפותח. מאבטח שפותח את האפליקציה שואל שאלה אחת — "מתי אני עובד?" —
+ * וכל דבר שעומד בינו לבין התשובה הוא מס. לכן התורנות הבאה מקבלת את החלק
+ * העליון של המסך, בלי ניווט, בלי כותרת ביניים, ועם ספירה לאחור במילים ולא
+ * בשעון: "עוד יומיים ו-3 שעות" נקרא בלי חישוב, "13/08 07:00" לא.
+ */
+function NextDuty({ shift, mates }) {
+  const ink = readableInk(shift.color);
+  const { start } = shiftInterval(shift);
+  const started = start <= Date.now();
+  return (
+    <div
+      className="rounded-3xl p-5 shadow-xl relative overflow-hidden animate-fade-up"
+      style={{ background: shift.color, color: ink }}
+    >
+      <p className="text-[11px] font-bold uppercase tracking-[0.15em] opacity-75">
+        התורנות הבאה שלך
+      </p>
+      <p className="text-2xl font-black leading-tight mt-1.5">
+        {started ? "עכשיו" : countdownHe(start)}
+      </p>
+      {/* formatDateHe כבר כולל את שם היום — הוספת dayName לצידו נותנת
+        * "ראשון · יום ראשון, 23 באוגוסט". */}
+      <p className="text-sm font-semibold opacity-95 mt-0.5">{formatDateHe(shift.date)}</p>
+
+      <div className="h-px bg-current opacity-20 my-4" />
+
+      <div className="flex items-center gap-4 flex-wrap text-sm font-semibold">
+        <span className="flex items-center gap-1.5" data-numeric>
+          <Icon name="clock" size={15} />
+          {shift.startTime}–{shift.endTime}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Icon name="map-pin" size={15} />
+          {shift.location}
+        </span>
+        <span className="opacity-85">{shift.label}</span>
+      </div>
+
+      <p className="text-xs opacity-85 mt-3">
+        {mates.length === 0 ? "לבד במשמרת" : `עם ${mates.join(" · ")}`}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * שורת ההוגנות. מספר בודד ("3 תורנויות") לא עונה על השאלה שבאמת נשאלת —
+ * "יצא לי יותר מלאחרים?" — ולכן כל מונה מופיע לצד ממוצע הצוות.
+ *
+ * היא מוצגת פעם אחת, לא תחת כל תורנות: אותם שני מספרים חוזרים מתחת לחמישה
+ * כרטיסים הם רעש, והם גם גורמים לקורא לחשוב שהמספר משתנה ביניהם.
+ */
+function FairnessLine({ mine, avg }) {
+  const rows = [
+    { label: "תורנויות", value: mine.count, avg: avg.count },
+    { label: "לילות", value: mine.nights, avg: avg.nights },
+    // נטל ולא שעות: זו היחידה שהמנוע באמת מחלק לפיה, ולהציג כאן מספר אחר
+    // פירושו שורת הוגנות שלא תואמת את ההחלטות שהתקבלו.
+    { label: "נטל", value: Math.round(mine.load), avg: avg.load, hint: "לילה וסופ״ש שוקלים יותר" },
+  ];
+  return (
+    <Card className="p-3.5">
+      <div className="grid grid-cols-3 divide-x divide-x-reverse divide-hairline">
+        {rows.map((r) => {
+          // סטייה של פחות מחצי יחידה היא רעש חישובי, לא אי־צדק.
+          const diff = r.value - r.avg;
+          const tone =
+            diff > 0.5 ? "text-warn" : diff < -0.5 ? "text-accent" : "text-content";
+          return (
+            <div key={r.label} className="text-center px-2">
+              <p className={`text-xl font-black ${tone}`} data-numeric>
+                {r.value}
+              </p>
+              <p className="text-[11px] font-semibold text-muted mt-0.5" title={r.hint}>
+                {r.label}
+              </p>
+              <p className="text-[10px] text-faint" data-numeric>
+                ממוצע {r.avg}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function MySchedule({ user, guards, shifts }) {
   const today = todayISO();
   const mine = shifts
@@ -47,12 +136,37 @@ function MySchedule({ user, guards, shifts }) {
   const publishedAll = shifts.filter((s) => s.published);
   const nameOf = (id) => guards.find((g) => g.id === id)?.name || "—";
 
+  // התורנות הראשונה יוצאת מהרשימה ועולה לכרטיס הפותח, כדי שלא תופיע פעמיים.
+  const [next, ...rest] = upcoming;
+  const { perGuard, avg } = useMemo(
+    () => teamAverages(guards, publishedAll),
+    [guards, publishedAll]
+  );
+  const mine_ = perGuard[user.id];
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="הסידור שלי"
-        subtitle={upcoming.length ? `${upcoming.length} משמרות קרובות` : "אין משמרות קרובות"}
-      />
+      {next && (
+        <>
+          <NextDuty
+            shift={next}
+            mates={next.assignedGuards.filter((id) => id !== user.id).map(nameOf)}
+          />
+          {mine_ && <FairnessLine mine={mine_} avg={avg} />}
+        </>
+      )}
+
+      {/* הכותרת מופיעה רק כשיש רשימה תחתיה. כרטיס פותח שיושב מתחת לכותרת
+        * "בהמשך" ריקה קורא כאילו משהו לא נטען. */}
+      {rest.length > 0 && (
+        <PageHeader
+          title="בהמשך"
+          subtitle={rest.length === 1 ? "עוד תורנות אחת" : `עוד ${rest.length} תורנויות`}
+        />
+      )}
+      {next && rest.length === 0 && (
+        <p className="text-sm text-muted text-center">זו התורנות היחידה שלך כרגע.</p>
+      )}
 
       {upcoming.length === 0 ? (
         <EmptyState
@@ -66,7 +180,7 @@ function MySchedule({ user, guards, shifts }) {
         />
       ) : (
         <div className="space-y-3">
-          {upcoming.map((s) => {
+          {rest.map((s) => {
             const others = s.assignedGuards.filter((id) => id !== user.id);
             const isToday = s.date === today;
             const ink = readableInk(s.color);
@@ -244,7 +358,7 @@ function MyAvailability({ user, team, shifts, availability, actions, busy }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="הגשת זמינות"
+        title={t("guard.nav.availability")}
         subtitle="סמן באילו משמרות אתה יכול לעבוד — זה מה שהשיבוץ מסתמך עליו"
       />
 
@@ -443,7 +557,14 @@ function MyAvailability({ user, team, shifts, availability, actions, busy }) {
 // SWAPS
 // ============================================================
 
-function MySwaps({ user, guards, shifts, swapRequests, actions, busy }) {
+function MySwaps({ user, guards, shifts, availability = {}, swapRequests, actions, busy }) {
+  // Agreeing to cover a shift runs the same hard constraints the engine runs,
+  // so a guard cannot accept a shift that would break their own rest rule.
+  const legality = (r) => {
+    const shift = shifts.find((x) => x.id === r.shiftId);
+    if (!shift) return { ok: false, reason: "המשמרת כבר לא קיימת" };
+    return checkAssignment({ guard: { id: r.toGuard }, shift, shifts, availability });
+  };
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ shiftId: "", toGuard: "", message: "" });
   const field = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -524,8 +645,9 @@ function MySwaps({ user, guards, shifts, swapRequests, actions, busy }) {
                             size="sm"
                             variant="accent"
                             icon="check"
-                            onClick={() => actions.decideSwap(r.id, "approved")}
-                            disabled={busy}
+                            onClick={() => actions.decideSwap(r, "approved")}
+                            disabled={busy || !legality(r).ok}
+                            title={legality(r).ok ? undefined : legality(r).reason}
                           >
                             מסכים
                           </Btn>
@@ -533,7 +655,7 @@ function MySwaps({ user, guards, shifts, swapRequests, actions, busy }) {
                             size="sm"
                             variant="danger"
                             icon="x"
-                            onClick={() => actions.decideSwap(r.id, "rejected")}
+                            onClick={() => actions.decideSwap(r, "rejected")}
                             disabled={busy}
                           >
                             לא
@@ -637,9 +759,11 @@ function MySwaps({ user, guards, shifts, swapRequests, actions, busy }) {
 
 export default function GuardApp({ state }) {
   const {
-    user, team, guards, shifts, availability, swapRequests, actions, busy, error, clearError, logout,
+    user, team, guards, shifts, availability, swapRequests, actions, busy, error, clearError, logout, offline,
   } = state;
   const [view, setView] = useState("schedule");
+  const profile = useSyncExternalStore(subscribeTerms, termProfile, termProfile);
+  const NAV = useMemo(() => navItems(), [profile]);
 
   // Nobody on the roster matched this name, so a fresh profile was made. That
   // is right for a genuinely new guard and wrong for a typo — and the two look
@@ -670,6 +794,7 @@ export default function GuardApp({ state }) {
         user={user}
         guards={guards}
         shifts={shifts}
+        availability={availability}
         swapRequests={swapRequests}
         actions={actions}
         busy={busy}
@@ -709,6 +834,11 @@ export default function GuardApp({ state }) {
           {error && (
             <Alert tone="danger" onClose={clearError}>
               {error}
+            </Alert>
+          )}
+          {offline && (
+            <Alert tone="warn" title="אין חיבור — מוצג הסידור האחרון שנטען">
+              אפשר לקרוא הכול. שינויים לא יישמרו עד שהרשת תחזור.
             </Alert>
           )}
           {showNameNotice && (

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Badge, Btn, Card, EmptyState, IconBtn, PageHeader, guardColor, readableInk } from "../ui.jsx";
 import { Icon } from "../icons.jsx";
+import { t } from "../../lib/terms.js";
 import {
   DAYS_HE, DAYS_HE_SHORT, addDays, dayName, formatDateHe, fromISODate, monthGrid, monthLabelHe,
   rangeLabelHe, shiftHours, startOfWeek, toISODate, todayISO, weekFrom,
@@ -146,11 +147,11 @@ export default function CalendarView({ shifts, guards, onNavigate }) {
         <EmptyState
           icon="calendar"
           title="אין משמרות בתצוגה הזו"
-          body="נווט לתקופה אחרת, או צור משמרות במסך ניהול המשמרות."
+          body={`נווט לתקופה אחרת, או צור משמרות במסך "${t("nav.shifts")}".`}
           action={
             onNavigate && (
               <Btn icon="plus" onClick={() => onNavigate("shifts")}>
-                לניהול משמרות
+                {t("nav.shifts")}
               </Btn>
             )
           }

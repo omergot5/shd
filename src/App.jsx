@@ -35,7 +35,7 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    console.error("Smart Shift Management crashed:", error, info);
+    console.error("NexRota crashed:", error, info);
   }
 
   render() {
@@ -74,7 +74,7 @@ class ErrorBoundary extends Component {
 
 const BootScreen = ({ label = "טוען…" }) => (
   <Curtain>
-    <LogoMark size={64} className="mx-auto mb-5" title="Smart Shift Management" />
+    <LogoMark size={64} className="mx-auto mb-5" title="NexRota" />
     <div className="flex items-center justify-center gap-2 text-muted text-sm">
       <Spinner size={16} /> {label}
     </div>

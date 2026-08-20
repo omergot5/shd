@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { autoAssign, availStatus, DEFAULT_RULES, explainUnfilled } from "../lib/autoAssign.js";
 import { formatDateHe, rangeLabelHe, shortDate } from "../lib/dates.js";
+import { t } from "../lib/terms.js";
 import { Icon } from "./icons.jsx";
 import {
   Alert, Avatar, Badge, Btn, Card, EmptyState, guardColor, Input, Meter, Modal, PageHeader,
@@ -203,7 +204,7 @@ const Kpi = ({ label, value, unit, hint, meter, meterColor, tone = "text-content
   </Card>
 );
 
-export default function SmartAssign({ weekDates, shifts, guards, availability, onApply, busy }) {
+export default function SmartAssign({ weekDates, shifts, guards, availability, onApply, busy, embedded = false }) {
   const [rules, setRules] = useState(DEFAULT_RULES);
   const [plan, setPlan] = useState(null);
   const [showRules, setShowRules] = useState(false);
@@ -243,7 +244,7 @@ export default function SmartAssign({ weekDates, shifts, guards, availability, o
 
   const header = (
     <PageHeader
-      title="שיבוץ חכם"
+      title={embedded ? null : t("nav.smart")}
       subtitle="המנוע בונה סידור שבועי לפי זמינות, מנוחה והוגנות"
     />
   );
@@ -255,7 +256,7 @@ export default function SmartAssign({ weekDates, shifts, guards, availability, o
         <EmptyState
           icon="users"
           title="אין עדיין שומרים בצוות"
-          body='כדי לשבץ צריך לפחות שומר אחד. הוסף שומרים במסך "הצוות שלי", או שתף איתם את קוד הצוות כדי שיצטרפו בעצמם.'
+          body={`כדי לשבץ צריך לפחות שומר אחד. הוסף שומרים במסך "${t("nav.team")}", או שתף איתם את קוד הצוות כדי שיצטרפו בעצמם.`}
         />
       </div>
     );
@@ -268,7 +269,7 @@ export default function SmartAssign({ weekDates, shifts, guards, availability, o
         <EmptyState
           icon="calendar"
           title="אין משמרות בשבוע הזה"
-          body='צור משמרות במסך "ניהול משמרות" — יש שם כפתור שממלא שבוע שלם בלחיצה אחת — ואז חזור לכאן.'
+          body={`צור משמרות במסך "${t("nav.shifts")}" — יש שם כפתור שממלא שבוע שלם בלחיצה אחת — ואז חזור לכאן.`}
         />
       </div>
     );
@@ -279,7 +280,7 @@ export default function SmartAssign({ weekDates, shifts, guards, availability, o
   return (
     <div className="space-y-6">
       <PageHeader
-        title="שיבוץ חכם"
+        title={embedded ? null : t("nav.smart")}
         subtitle={`${rangeLabelHe(weekDates)} · ${weekShifts.length} משמרות · ${guards.length} שומרים`}
         actions={
           <>
@@ -287,7 +288,7 @@ export default function SmartAssign({ weekDates, shifts, guards, availability, o
               כללים
             </Btn>
             <Btn icon={plan ? "refresh" : "zap"} onClick={run} loading={busy}>
-              {plan ? "הרץ מחדש" : "הרץ שיבוץ חכם"}
+              {plan ? t("action.rerun") : t("nav.smart")}
             </Btn>
           </>
         }
@@ -332,7 +333,7 @@ export default function SmartAssign({ weekDates, shifts, guards, availability, o
           body={`המנוע יעבור על ${weekShifts.length} המשמרות, יפסול כל מי שלא עומד באילוצים (זמינות, ${rules.minRestHours} שעות מנוחה, מקס' ${rules.maxConsecutiveHours} שעות רצוף), וידרג את השאר לפי הוגנות עומס וסבב לילות.`}
           action={
             <Btn size="lg" icon="zap" onClick={run} loading={busy}>
-              הרץ שיבוץ חכם
+              {t("nav.smart")}
             </Btn>
           }
         />
@@ -340,7 +341,7 @@ export default function SmartAssign({ weekDates, shifts, guards, availability, o
         <div className="space-y-6 animate-fade-up">
           {applied && (
             <Alert tone="accent" onClose={() => setApplied(false)}>
-              השיבוץ הוחל. אפשר לפרסם אותו לשומרים במסך "פרסום סידור".
+              השיבוץ הוחל. אפשר לפרסם אותו לשומרים במסך "{t("nav.schedule")}".
             </Alert>
           )}
 

@@ -1,5 +1,5 @@
 // ============================================================
-// Smart Shift Management — smart assignment engine
+// NexRota — smart assignment engine
 //
 // A deterministic constraint solver. Same inputs always produce the same
 // schedule, and every decision it makes carries a human-readable reason,
@@ -15,7 +15,7 @@
 //      guards to flatten the workload without breaking any hard constraint.
 // ============================================================
 
-import { shiftInterval, shiftHours, formatDateHe } from "./dates.js";
+import { shiftInterval, shiftHours, formatDateHe, fromISODate, minutesOfTime } from "./dates.js";
 
 export const DEFAULT_RULES = {
   minRestHours: 8, // minimum gap between two separate shifts
@@ -52,6 +52,39 @@ export const AVAILABILITY_ORDER = ["preferred", "available", "maybe", "unknown",
 
 const HOUR = 3600000;
 
+/**
+ * נטל יחסי לפי סוג תורנות.
+ *
+ * שתי תורנויות באותו אורך אינן שוות. לילה שובר את השינה, וסוף שבוע לוקח את
+ * הזמן שאדם באמת רוצה לעצמו. אחראי שסופר "שלוש משמרות לכל אחד" ומרגיש שחילק
+ * בהוגנות — מחלק בפועל את הלילות למי שפחות מתלונן.
+ *
+ * המספרים הם מכפיל על השעות ולא במקומן: תורנות לילה בת 12 שעות נושאת נטל של
+ * 12 × 1.4. הם שמרניים בכוונה — מכפיל אגרסיבי הופך את הסבב לתנודתי, ומי
+ * שקיבל לילה אחד היה נעלם מהשיבוץ ליומיים.
+ */
+export const LOAD_WEIGHTS = { night: 1.4, weekend: 1.25, day: 1, default: 1 };
+
+/** שישי מהצהריים ושבת. ראשון הוא יום עבודה רגיל בישראל. */
+const isWeekendShift = (shift) => {
+  const day = fromISODate(shift.date).getDay();
+  if (day === 6) return true;
+  return day === 5 && minutesOfTime(shift.startTime) >= 12 * 60;
+};
+
+/**
+ * הנטל של תורנות אחת — שעות × מכפיל הסוג. זו היחידה שבה נמדדת הוגנות בכל
+ * המוצר, ולכן היא מיוצאת: מסך המשתתף חייב להראות בדיוק את המספר שהמנוע חילק
+ * לפיו, אחרת שורת ההוגנות משקרת.
+ */
+export function shiftLoad(shift) {
+  const base = LOAD_WEIGHTS[shift.type] ?? LOAD_WEIGHTS.default;
+  const weekend = isWeekendShift(shift) ? LOAD_WEIGHTS.weekend : 1;
+  // המכפילים לא מוכפלים זה בזה: לילה בשבת אינו פי 1.75 מיום חול. נלקח החמור
+  // מביניהם, כדי שהסבב יישאר יציב.
+  return shiftHours(shift) * Math.max(base, weekend);
+}
+
 // ---------- small helpers ----------
 
 const availKey = (guardId, shiftId) => `${guardId}-${shiftId}`;
@@ -87,7 +120,7 @@ const tieBreak = (a, b) => String(a.guardId).localeCompare(String(b.guardId));
 // ---------- guard workload bookkeeping ----------
 
 function emptyLoad() {
-  return { shifts: [], count: 0, nights: 0, hours: 0, dates: new Set() };
+  return { shifts: [], count: 0, nights: 0, hours: 0, load: 0, dates: new Set() };
 }
 
 /**
@@ -233,15 +266,17 @@ function scoreCandidate({ guard, shift, load, availability, rules, stats, check 
   }
 
   // 2. Fairness — the further below the team average, the stronger the pull.
-  const target = Math.max(stats.targetPerGuard, 0.001);
-  const fairness = Math.max(0, Math.min(1, 1 - load.count / target));
+  // נמדד בנטל ולא בספירת משמרות: מי שעשה שני לילות נשא יותר ממי שעשה שלושה
+  // בקרים, וספירה פשוטה הייתה שולחת אליו את הלילה הבא.
+  const target = Math.max(stats.loadTargetPerGuard, 0.001);
+  const fairness = Math.max(0, Math.min(1, 1 - load.load / target));
   const fairnessPts = points(35 * fairness);
   score += fairnessPts;
   parts.push({
     label:
       load.count === 0
         ? "טרם שובץ/ה השבוע"
-        : `עומס נמוך יחסית — ${load.count} משמרות מול ממוצע ${round(stats.targetPerGuard)}`,
+        : `נטל נמוך יחסית — ${round(load.load)} מול ממוצע ${round(stats.loadTargetPerGuard)}`,
     points: fairnessPts,
     kind: "fairness",
   });
@@ -339,6 +374,7 @@ export function autoAssign({ shifts, guards, availability = {}, rules: ruleOverr
     l.shifts.push({ ...iv, shiftId: shift.id, type: shift.type, date: shift.date });
     l.count += 1;
     l.hours += shiftHours(shift);
+    l.load += shiftLoad(shift);
     l.dates.add(shift.date);
     if (shift.type === "night") l.nights += 1;
     const record = { shiftId: shift.id, guardId: guard.id, score, raw, parts, locked };
@@ -374,6 +410,9 @@ export function autoAssign({ shifts, guards, availability = {}, rules: ruleOverr
 
   const stats = {
     targetPerGuard: totalSlots / activeGuards.length,
+    loadTargetPerGuard:
+      openShifts.reduce((sum, s) => sum + shiftLoad(s) * Math.max(1, s.requiredGuards || 1), 0) /
+      activeGuards.length,
     nightTargetPerGuard: nightSlots / activeGuards.length,
     hasPreference,
   };
@@ -551,6 +590,7 @@ function removeFromLoad(l, shift) {
   l.shifts.splice(idx, 1);
   l.count -= 1;
   l.hours -= shiftHours(shift);
+  l.load -= shiftLoad(shift);
   if (shift.type === "night") l.nights -= 1;
   if (!l.shifts.some((s) => s.date === shift.date)) l.dates.delete(shift.date);
 }
@@ -560,6 +600,7 @@ function addToLoad(l, shift) {
   l.shifts.push({ ...iv, shiftId: shift.id, type: shift.type, date: shift.date });
   l.count += 1;
   l.hours += shiftHours(shift);
+  l.load += shiftLoad(shift);
   l.dates.add(shift.date);
   if (shift.type === "night") l.nights += 1;
 }
@@ -650,6 +691,37 @@ function emptyResult(rules, shifts, guards) {
 // ---------- explanation helpers for the UI ----------
 
 /** Turns a scored assignment into a short Hebrew sentence. */
+/**
+ * Can this guard legally take this shift, given everything else already on the
+ * roster? Answers the question a swap approval asks, using the *same* checker
+ * the engine runs — a swap that the engine would never have produced must not
+ * be reachable by approving a request either.
+ *
+ * The guard's current load is rebuilt from `shifts`, so the caller passes the
+ * roster it already holds rather than any private engine state.
+ *
+ * @returns {{ok: boolean, code?: string, reason?: string}}
+ */
+export function checkAssignment({ guard, shift, shifts = [], availability = {}, rules: ruleOverrides }) {
+  if (!guard || !shift) return { ok: false, code: "missing", reason: "חסרים פרטי המשמרת או השומר" };
+
+  const rules = { ...DEFAULT_RULES, ...ruleOverrides };
+  const load = emptyLoad();
+  for (const s of shifts) {
+    // The target shift is excluded: `checkHardConstraints` reports being
+    // already on it through its own `already` code, and counting it here as
+    // well would double-book the guard against themselves.
+    if (!s || s.id === shift.id) continue;
+    if ((s.assignedGuards || []).includes(guard.id)) addToLoad(load, s);
+  }
+
+  if ((shift.assignedGuards || []).includes(guard.id)) {
+    load.shifts.push({ ...shiftInterval(shift), shiftId: shift.id, type: shift.type, date: shift.date });
+  }
+
+  return checkHardConstraints({ guard, shift, load, availability, rules });
+}
+
 export function explainAssignment(record, guardName) {
   if (!record) return "";
   const top = [...(record.parts || [])]
@@ -681,4 +753,43 @@ export function explainUnfilled(entry) {
   return Object.entries(byCode)
     .map(([code, n]) => `${n} ${labels[code] || code}`)
     .join(" · ");
+}
+
+/**
+ * כמה תורנויות, לילות ושעות יש לכל אחד — ומה הממוצע בצוות.
+ *
+ * המספר הבודד ("3 תורנויות") לא אומר כלום; מה שאדם באמת רוצה לדעת הוא אם
+ * יצא לו יותר מלאחרים. לכן כל מונה חוזר לצד הממוצע, ותמיד מאותו חתך משמרות
+ * שהקורא רואה על המסך — הקורא מסנן, הפונקציה רק סופרת.
+ *
+ * הממוצע מחושב על פני כל אנשי הצוות, כולל מי שלא שובץ בכלל: אם שלושה מתוך
+ * עשרה נושאים את כל השבוע, זו בדיוק העובדה ששורת ההוגנות אמורה לחשוף.
+ */
+export function teamAverages(guards, shifts) {
+  const perGuard = {};
+  for (const g of guards) perGuard[g.id] = { count: 0, nights: 0, hours: 0, load: 0 };
+
+  for (const s of shifts) {
+    const hours = shiftHours(s);
+    const weight = shiftLoad(s);
+    for (const id of s.assignedGuards || []) {
+      const rec = perGuard[id];
+      if (!rec) continue; // שובץ ואז הוסר מהצוות
+      rec.count += 1;
+      rec.hours += hours;
+      rec.load += weight;
+      if (s.type === "night") rec.nights += 1;
+    }
+  }
+
+  const n = guards.length || 1;
+  const sum = (key) => Object.values(perGuard).reduce((a, r) => a + r[key], 0);
+  const avg = {
+    count: round(sum("count") / n),
+    nights: round(sum("nights") / n),
+    hours: round(sum("hours") / n),
+    load: round(sum("load") / n),
+  };
+
+  return { perGuard, avg };
 }

@@ -4,7 +4,7 @@
 // Asserts the hard constraints actually hold on a generated week, and prints
 // the coverage/fairness numbers so regressions are obvious.
 
-import { autoAssign, DEFAULT_RULES } from "../src/lib/autoAssign.js";
+import { autoAssign, checkAssignment, DEFAULT_RULES, shiftLoad } from "../src/lib/autoAssign.js";
 import { shiftInterval, weekByOffset } from "../src/lib/dates.js";
 
 const HOUR = 3600000;
@@ -256,6 +256,96 @@ check("scattered preferences are honoured where legal",
 check("preferred assignments say so in the explanation",
   preferWins.assignments[0].parts.some((p) => p.label.includes("ביקש")),
   JSON.stringify(preferWins.assignments[0].parts.map((p) => p.label)));
+
+// ---------- swap safety (FR-4.4) ----------
+// Approving a swap must run the same hard constraints the engine itself runs.
+// Without this a supervisor can approve a swap that breaks a rest rule, which
+// silently voids the promise that the system never produces an illegal roster.
+console.log("\nswap safety");
+
+const swapShifts = [
+  { id: "s1", date: dates[0], label: "לילה", type: "night",
+    startTime: "23:00", endTime: "07:00", requiredGuards: 1, assignedGuards: ["g1"] },
+  { id: "s2", date: dates[1], label: "בוקר", type: "morning",
+    startTime: "08:00", endTime: "16:00", requiredGuards: 1, assignedGuards: ["g2"] },
+];
+const swapAvail = {};
+for (const g of guards) for (const s of swapShifts) swapAvail[`${g.id}-${s.id}`] = { status: "available" };
+
+// g1 comes off s1 at 07:00 and s2 starts at 08:00 — one hour of rest, not eight.
+const illegalSwap = checkAssignment({
+  guard: guards[0], shift: swapShifts[1], shifts: swapShifts, availability: swapAvail,
+});
+check("swap that breaks minimum rest is rejected", illegalSwap.ok === false, JSON.stringify(illegalSwap));
+check("rejection names the rest rule", illegalSwap.code === "rest", illegalSwap.code);
+check("rejection carries a human reason",
+  typeof illegalSwap.reason === "string" && illegalSwap.reason.length > 0);
+
+// g3 holds nothing this week, so the same move is legal for them.
+const legalSwap = checkAssignment({
+  guard: guards[2], shift: swapShifts[1], shifts: swapShifts, availability: swapAvail,
+});
+check("swap with a free guard is allowed", legalSwap.ok === true, JSON.stringify(legalSwap));
+
+// An explicit "unavailable" blocks a swap exactly as it blocks the engine.
+const blockedSwap = checkAssignment({
+  guard: guards[2], shift: swapShifts[1], shifts: swapShifts,
+  availability: { ...swapAvail, "g3-s2": { status: "unavailable" } },
+});
+check("swap onto a shift the guard marked unavailable is rejected",
+  blockedSwap.ok === false, blockedSwap.code);
+
+// The guard already on the shift is not a candidate to be swapped onto it.
+const alreadyOn = checkAssignment({
+  guard: guards[1], shift: swapShifts[1], shifts: swapShifts, availability: swapAvail,
+});
+check("swap onto a shift the guard already holds is rejected",
+  alreadyOn.code === "already", alreadyOn.code);
+
+// ---------------------------------------------------------------
+// נטל (FR-3.2) — הוגנות נמדדת במשקל התורנות, לא בספירתן.
+// ---------------------------------------------------------------
+
+const loadWeek = weekByOffset(1);
+const dayShift = {
+  id: "L1", date: loadWeek[1], startTime: "07:00", endTime: "19:00",
+  type: "day", requiredGuards: 1, assignedGuards: [], label: "יום",
+};
+const nightShift = { ...dayShift, id: "L2", type: "night", startTime: "19:00", endTime: "07:00" };
+
+check("לילה נושא יותר נטל מיום באותו אורך",
+  shiftLoad(nightShift) > shiftLoad(dayShift),
+  `${shiftLoad(nightShift)} vs ${shiftLoad(dayShift)}`);
+
+const satIndex = loadWeek.findIndex((d) => new Date(`${d}T12:00:00`).getDay() === 6);
+const satShift = { ...dayShift, id: "L3", date: loadWeek[satIndex] };
+check("שבת נושאת יותר נטל מיום חול",
+  shiftLoad(satShift) > shiftLoad(dayShift),
+  `${shiftLoad(satShift)} vs ${shiftLoad(dayShift)}`);
+
+// המכפילים אינם מוכפלים זה בזה: לילה בשבת אינו 1.4 × 1.25.
+const satNight = { ...nightShift, id: "L4", date: loadWeek[satIndex] };
+check("לילה בשבת נלקח לפי המכפיל החמור ולא לפי מכפלתם",
+  Math.abs(shiftLoad(satNight) - shiftLoad(nightShift)) < 1e-9,
+  `${shiftLoad(satNight)} vs ${shiftLoad(nightShift)}`);
+
+/**
+ * המבחן האמיתי: שניים, לילה ושתי משמרות יום. מי שכבר נשא את הלילה נמצא מעל
+ * הממוצע בנטל, ולכן אסור שיקבל גם את שתי משמרות היום — למרות שספירה פשוטה
+ * הייתה רואה כאן תיקו של שיבוץ אחד לכל אחד.
+ */
+const two = [{ id: "a", name: "א" }, { id: "b", name: "ב" }];
+const seq = [
+  { ...nightShift, id: "N1", date: loadWeek[0] },
+  { ...dayShift, id: "D1", date: loadWeek[2] },
+  { ...dayShift, id: "D2", date: loadWeek[4] },
+];
+const loadPlan = autoAssign({ shifts: seq, guards: two, availability: {} });
+const holderOfNight = loadPlan.assignments.find((a) => a.shiftId === "N1")?.guardId;
+const nextTwo = ["D1", "D2"].map((id) => loadPlan.assignments.find((a) => a.shiftId === id)?.guardId);
+check("מי שנשא לילה לא מקבל גם את שתי משמרות היום",
+  nextTwo.filter((g) => g === holderOfNight).length <= 1,
+  JSON.stringify({ holderOfNight, nextTwo }));
 
 console.log(`\n${failures === 0 ? "PASS" : `FAIL — ${failures} failing check(s)`}\n`);
 process.exit(failures === 0 ? 0 : 1);
